@@ -47,7 +47,6 @@ class CLLinPredMin(BaseMethod):
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
         self.ridge_lambd : float = cfg.method_kwargs.ridge_lambd
 
-
         proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         proj_output_dim: int = cfg.method_kwargs.proj_output_dim
 
@@ -125,15 +124,11 @@ class CLLinPredMin(BaseMethod):
         class_loss = out["loss"]
         z1, z2 = out["z"]
 
-        # ------------------
-
-
         # normalize the representations along the batch dimension
         out_1_norm = (z1 - z1.mean(dim=0)) / z1.std(dim=0)
         out_2_norm = (z2 - z2.mean(dim=0)) / z2.std(dim=0)
         
         embeddings = torch.cat((out_1_norm, out_2_norm), 0)
-
 
         # gather all embeddings from all gpus using all_gather:
         # TODO: test!!!
@@ -142,7 +137,6 @@ class CLLinPredMin(BaseMethod):
             dist.all_gather(tensor_list=all_embeddings, tensor=embeddings)
             embeddings = torch.cat(all_embeddings, dim=0)
 
-        
         batch_size, feature_dim = embeddings.shape
 
         number_to_mask = int(feature_dim * self.mask_fraction)
@@ -163,7 +157,6 @@ class CLLinPredMin(BaseMethod):
         W = torch.linalg.solve(X.to(torch.float32), B.to(torch.float32))
 
         prediction_loss = - average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
-
 
         # cross-correlation matrix
         c = (out_1_norm.T @ out_2_norm) / batch_size
