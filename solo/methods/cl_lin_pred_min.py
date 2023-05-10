@@ -22,6 +22,7 @@ from typing import Any, List, Sequence
 import omegaconf
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from solo.losses.barlow import barlow_loss_func
 from solo.methods.base import BaseMethod
 from solo.utils.misc import omegaconf_select
@@ -37,29 +38,41 @@ class CLLinPredMin(BaseMethod):
                 proj_hidden_dim (int): number of neurons of the hidden layers of the projector.
                 proj_output_dim (int): number of dimensions of projected features.
                 lamb (float): off-diagonal scaling factor for the cross-covariance matrix.
-                scale_loss (float): scaling factor of the loss.
         """
 
         super().__init__(cfg)
 
         self.lamb: float = cfg.method_kwargs.lamb
-        self.scale_loss: float = cfg.method_kwargs.scale_loss
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
         self.ridge_lambd : float = cfg.method_kwargs.ridge_lambd
 
-        proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
-        proj_output_dim: int = cfg.method_kwargs.proj_output_dim
+        self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
+        self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
+
 
         # projector
-        self.projector = nn.Sequential(
-            nn.Linear(self.features_dim, proj_hidden_dim),
-            nn.BatchNorm1d(proj_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(proj_hidden_dim, proj_hidden_dim),
-            nn.BatchNorm1d(proj_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(proj_hidden_dim, proj_output_dim),
-        )
+
+        if cfg.method_kwargs.proj_size == 1:
+            self.projector = nn.Sequential(
+                nn.Linear(self.features_dim, self.proj_output_dim),
+            )
+        if cfg.method_kwargs.proj_size == 2:
+            self.projector = nn.Sequential(
+                nn.Linear(self.features_dim, self.proj_hidden_dim),
+                nn.BatchNorm1d(self.proj_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.proj_hidden_dim, self.proj_output_dim),
+            )
+        if cfg.method_kwargs.proj_size == 3:
+            self.projector = nn.Sequential(
+                nn.Linear(self.features_dim, self.proj_hidden_dim),
+                nn.BatchNorm1d(self.proj_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.proj_hidden_dim, self.proj_hidden_dim),
+                nn.BatchNorm1d(self.proj_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.proj_hidden_dim, self.proj_output_dim),
+            )
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
@@ -76,9 +89,10 @@ class CLLinPredMin(BaseMethod):
 
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_hidden_dim")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_output_dim")
+        assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_size")
 
-        cfg.method_kwargs.lamb = omegaconf_select(cfg, "method_kwargs.lamb", 0.0051)
-        cfg.method_kwargs.scale_loss = omegaconf_select(cfg, "method_kwargs.scale_loss", 0.024)
+
+        cfg.method_kwargs.lamb = omegaconf_select(cfg, "method_kwargs.lamb", 0.1)
 
         return cfg
 
@@ -102,11 +116,13 @@ class CLLinPredMin(BaseMethod):
         Returns:
             Dict[str, Any]: a dict containing the outputs of the parent and the projected features.
         """
-
         out = super().forward(X)
         z = self.projector(out["feats"])
+
         out.update({"z": z})
         return out
+
+
 
     def training_step(self, batch: Sequence[Any], batch_idx: int) -> torch.Tensor:
         """Training step for Barlow Twins reusing BaseMethod training step.
@@ -120,6 +136,53 @@ class CLLinPredMin(BaseMethod):
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
 
+        out = super().training_step(batch, batch_idx)
+        class_loss = out["loss"]
+        z1, z2 = out["z"]
+
+        z1_norm = F.normalize(z1, dim=-1)
+        z2_norm = F.normalize(z2, dim=-1)
+
+        batch_size, _ = z1_norm.size()
+
+        out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
+        out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
+
+        loo_features = torch.cat((out_1_norm, out_2_norm), 0)
+
+        number_to_mask = int(self.proj_output_dim * self.mask_fraction)
+
+        embeddings = loo_features
+        batch_size, embedding_dimension = embeddings.shape
+        masked_indices = (torch.rand(batch_size, embedding_dimension, device=embeddings.device) < (
+                    number_to_mask / embedding_dimension))
+        masked_embeddings = (~masked_indices) * embeddings
+        X_train = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
+        X_train = X_train + self.ridge_lambd * torch.eye(self.proj_output_dim, device=embeddings.device)
+        B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices * embeddings)
+        W = torch.linalg.solve(X_train, B)
+        prediction_loss = average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
+
+        del masked_embeddings, masked_indices
+
+        last_prediction_loss = prediction_loss
+
+        # cross-correlation matrix
+        c = (out_1_norm.T @ out_2_norm) / self.batch_size
+
+        on_diag = torch.diagonal(c).add(-1).pow(2).sum()
+
+        # note the minus as we try to maximize the prediction loss
+        loss = on_diag - self.lamb * (self.proj_output_dim * last_prediction_loss)
+
+        self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_min_last_pred_loss", last_prediction_loss, on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
+
+        return loss + class_loss
+
+
+        """
         out = super().training_step(batch, batch_idx)
         class_loss = out["loss"]
         z1, z2 = out["z"]
@@ -154,27 +217,32 @@ class CLLinPredMin(BaseMethod):
         B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices*embeddings)
         
         # we cannot use reduced precision in the following call:
-        W = torch.linalg.solve(X.to(torch.float32), B.to(torch.float32))
+        W = torch.linalg.solve(X, B)
 
-        prediction_loss = - average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
+        prediction_loss = average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
 
         # cross-correlation matrix
         c = (out_1_norm.T @ out_2_norm) / batch_size
 
         on_diag_loss = torch.diagonal(c).add(-1).pow(2).sum()
 
-        cl_lin_pred_min_loss = on_diag_loss + (self.lamb*feature_dim)*prediction_loss
+        print("feature_dim: ", feature_dim)
+        print("prediction_loss: ", prediction_loss)
+        print("self.lamb: ", self.lamb)
+
+        cl_lin_pred_min_loss = on_diag_loss - (self.lamb*feature_dim)*prediction_loss
 
         self.log("cl_lin_pred_min_last_prediction_loss", - prediction_loss, on_epoch=True, sync_dist=True)
         self.log("cl_lin_pred_min_diagonal_loss", on_diag_loss, on_epoch=True, sync_dist=True)
         self.log("cl_lin_pred_min_total_loss", cl_lin_pred_min_loss, on_epoch=True, sync_dist=True)
 
         return cl_lin_pred_min_loss + class_loss
+        """
 
 
-
-
-def average_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor):
+def average_predictor_mse_loss(
+    predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor
+):
     assert predictions.shape == labels.shape
 
     diff_square = torch.square(predictions - labels)

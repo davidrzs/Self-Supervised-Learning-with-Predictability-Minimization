@@ -14,13 +14,14 @@ hydra:
 name: "cl_lin_pred_min_cifar10" # change here for cifar100
 method: "cl_lin_pred_min"
 backbone:
-  name: "resnet50"
+  name: "resnet18"
 method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
   mask_fraction: 0.5
-  ridge_lambd: 0.0
   lamb: 0.1
+  ridge_lambd: 0
+  proj_size: 2
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
@@ -29,10 +30,12 @@ data:
   num_workers: 4
 optimizer:
   name: "adamw"
-  batch_size: 256
+  batch_size: 512
   lr: 5e-4
-  weight_decay: 0
-  classifier_lr: 0.01
+  weight_decay: 1e-6
+  classifier_lr: 5e-4
+  kwargs:
+    betas: [0.9, 0.999]
 #optimizer:
 #  name: "lars"
 #  batch_size: 256
@@ -57,4 +60,4 @@ devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 16
+precision: 32
