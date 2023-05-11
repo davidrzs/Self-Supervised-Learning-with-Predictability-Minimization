@@ -22,6 +22,7 @@ method_kwargs:
   lamb: 0.1
   ridge_lambd: 0
   proj_size: 2
+  normalize: True
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
@@ -60,4 +61,4 @@ devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 32
+precision: 16

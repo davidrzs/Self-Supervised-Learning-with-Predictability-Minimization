@@ -49,6 +49,7 @@ class CLLinPredMin(BaseMethod):
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
 
+        self.normalize = cfg.method_kwargs.normalize
 
         # projector
 
@@ -90,6 +91,7 @@ class CLLinPredMin(BaseMethod):
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_hidden_dim")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_output_dim")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_size")
+        assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.normalize")
 
 
         cfg.method_kwargs.lamb = omegaconf_select(cfg, "method_kwargs.lamb", 0.1)
@@ -140,27 +142,35 @@ class CLLinPredMin(BaseMethod):
         class_loss = out["loss"]
         z1, z2 = out["z"]
 
-        z1_norm = F.normalize(z1, dim=-1)
-        z2_norm = F.normalize(z2, dim=-1)
+        if self.normalize:
+            z1_norm = F.normalize(z1, dim=-1)
+            z2_norm = F.normalize(z2, dim=-1)
+        else:
+            z1_norm = z1
+            z2_norm = z2
 
         batch_size, _ = z1_norm.size()
 
         out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
         out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
 
-        loo_features = torch.cat((out_1_norm, out_2_norm), 0)
+        print(out_1_norm.dtype)
+
+        embeddings = torch.cat((out_1_norm, out_2_norm), 0)
+
+        print(embeddings.dtype)
 
         number_to_mask = int(self.proj_output_dim * self.mask_fraction)
 
-        embeddings = loo_features
         batch_size, embedding_dimension = embeddings.shape
         masked_indices = (torch.rand(batch_size, embedding_dimension, device=embeddings.device) < (
                     number_to_mask / embedding_dimension))
         masked_embeddings = (~masked_indices) * embeddings
-        X_train = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
-        X_train = X_train + self.ridge_lambd * torch.eye(self.proj_output_dim, device=embeddings.device)
-        B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices * embeddings)
-        W = torch.linalg.solve(X_train, B)
+        X = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
+        X = X + self.ridge_lambd * torch.eye(self.proj_output_dim, device=embeddings.device, dtype=embeddings.dtype)
+        B = torch.matmul(torch.transpose(masked_embeddings, 0, 1), (masked_indices * embeddings)).full()
+        print(f'X: {X.dtype}, B: {B.dtype}, torch.transpose(masked_embeddings, 0, 1): {torch.transpose(masked_embeddings, 0, 1).dtype},masked_embeddings: {masked_embeddings.dtype}, embeddings: {embeddings.dtype}, masked_indices: {masked_indices.dtype}, (masked_indices * embeddings): {(masked_indices * embeddings).dtype}')
+        W = torch.linalg.solve(X, B)
         prediction_loss = average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
 
         del masked_embeddings, masked_indices
@@ -182,62 +192,6 @@ class CLLinPredMin(BaseMethod):
         return loss + class_loss
 
 
-        """
-        out = super().training_step(batch, batch_idx)
-        class_loss = out["loss"]
-        z1, z2 = out["z"]
-
-        # normalize the representations along the batch dimension
-        out_1_norm = (z1 - z1.mean(dim=0)) / z1.std(dim=0)
-        out_2_norm = (z2 - z2.mean(dim=0)) / z2.std(dim=0)
-        
-        embeddings = torch.cat((out_1_norm, out_2_norm), 0)
-
-        # gather all embeddings from all gpus using all_gather:
-        # TODO: test!!!
-        if dist.is_available() and dist.is_initialized():
-            all_embeddings = [torch.zeros_like(embeddings) for _ in range(dist.get_world_size())]
-            dist.all_gather(tensor_list=all_embeddings, tensor=embeddings)
-            embeddings = torch.cat(all_embeddings, dim=0)
-
-        batch_size, feature_dim = embeddings.shape
-
-        number_to_mask = int(feature_dim * self.mask_fraction)
-
-        batch_size, embedding_dimension = embeddings.shape
-
-        masked_indices = (torch.rand(batch_size, embedding_dimension, device=embeddings.device) < (number_to_mask / embedding_dimension))
-
-        masked_embeddings = (~masked_indices) * embeddings
-
-        X = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
-
-        X = X + self.ridge_lambd*torch.eye(feature_dim, device=X.device, dtype=X.dtype)
-
-        B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices*embeddings)
-        
-        # we cannot use reduced precision in the following call:
-        W = torch.linalg.solve(X, B)
-
-        prediction_loss = average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
-
-        # cross-correlation matrix
-        c = (out_1_norm.T @ out_2_norm) / batch_size
-
-        on_diag_loss = torch.diagonal(c).add(-1).pow(2).sum()
-
-        print("feature_dim: ", feature_dim)
-        print("prediction_loss: ", prediction_loss)
-        print("self.lamb: ", self.lamb)
-
-        cl_lin_pred_min_loss = on_diag_loss - (self.lamb*feature_dim)*prediction_loss
-
-        self.log("cl_lin_pred_min_last_prediction_loss", - prediction_loss, on_epoch=True, sync_dist=True)
-        self.log("cl_lin_pred_min_diagonal_loss", on_diag_loss, on_epoch=True, sync_dist=True)
-        self.log("cl_lin_pred_min_total_loss", cl_lin_pred_min_loss, on_epoch=True, sync_dist=True)
-
-        return cl_lin_pred_min_loss + class_loss
-        """
 
 
 def average_predictor_mse_loss(

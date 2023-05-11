@@ -39,22 +39,4 @@ def cl_lin_pred_min_loss_func(
         torch.Tensor: Barlow Twins' loss.
     """
 
-    N, D = z1.size()
 
-    # to match the original code
-    bn = torch.nn.BatchNorm1d(D, affine=False).to(z1.device)
-    z1 = bn(z1)
-    z2 = bn(z2)
-
-    corr = torch.einsum("bi, bj -> ij", z1, z2) / N
-
-    if dist.is_available() and dist.is_initialized():
-        dist.all_reduce(corr)
-        world_size = dist.get_world_size()
-        corr /= world_size
-
-    diag = torch.eye(D, device=corr.device)
-    cdif = (corr - diag).pow(2)
-    cdif[~diag.bool()] *= lamb
-    loss = scale_loss * cdif.sum()
-    return loss
