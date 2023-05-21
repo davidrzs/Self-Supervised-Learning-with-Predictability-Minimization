@@ -11,7 +11,7 @@ hydra:
   run:
     dir: .
 
-name: "cl_lin_pred_min_cifar10" # change here for cifar100
+name: "cl_lin_pred_min-cifar10" # change here for cifar100
 method: "cl_lin_pred_min"
 backbone:
   name: "resnet18"
@@ -61,4 +61,4 @@ devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 32
+precision: 16-mixed

@@ -11,14 +11,18 @@ hydra:
   run:
     dir: .
 
-name: "barlow_twins-imagenet100"
-method: "barlow_twins"
+name: "cl_lin_pred_min-imagenet100"
+method: "cl_lin_pred_min"
 backbone:
   name: "resnet18"
 method_kwargs:
   proj_hidden_dim: 2048
-  proj_output_dim: 2048
-  scale_loss: 0.1
+  proj_output_dim: 128
+  mask_fraction: 0.5
+  lamb: 0.1
+  ridge_lambd: 0
+  proj_size: 3
+  normalize: True
 data:
   dataset: imagenet100
   train_path: "/home/david/data/imagenet_100/train"
@@ -27,7 +31,7 @@ data:
   num_workers: 4
 optimizer:
   name: "lars"
-  batch_size: 128
+  batch_size: 256
   lr: 0.3
   classifier_lr: 0.1
   weight_decay: 1e-4
@@ -42,8 +46,7 @@ checkpoint:
   dir: "trained_models"
   frequency: 1
 auto_resume:
-  enabled: True
-
+  enabled: False
 # overwrite PL stuff
 max_epochs: 400
 devices: [0]

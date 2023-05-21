@@ -165,7 +165,7 @@ class CLLinPredMin(BaseMethod):
         X = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
         X = X + self.ridge_lambd * torch.eye(self.proj_output_dim, device=embeddings.device)
         B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices * embeddings)
-        W = torch.linalg.solve(X, B)
+        W = torch.linalg.solve(X.float(), B.float())
         prediction_loss = average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
 
         del masked_embeddings, masked_indices
