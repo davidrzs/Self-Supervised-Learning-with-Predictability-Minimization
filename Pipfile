@@ -9,16 +9,16 @@ verify_ssl = true
 name = "nvidia"
 
 [packages]
-torch = "~=1.13.1"
+torch = ">=1.10.0"
 torchvision = ">=0.11.1"
 einops = "*"
-pytorch-lightning = ">=1.7.0,<1.9.0"
-torchmetrics = ">=0.6.0,<0.12.0"
+pytorch-lightning = "==2.0.2"
+torchmetrics = "<0.12.0,>=0.6.0"
 lightning-bolts = ">=0.6.0"
 tqdm = "*"
 wandb = "*"
 scipy = "*"
-timm = "*"
+timm = "~=0.6.13"
 scikit-learn = "*"
 hydra-core = "*"
 h5py = "*"
@@ -28,6 +28,7 @@ matplotlib = "*"
 umap = "*"
 nvidia-dali-cuda110 = "*"
 pillow-simd = "*"
+protobuf = "~=3.20"
 
 [dev-packages]
 
