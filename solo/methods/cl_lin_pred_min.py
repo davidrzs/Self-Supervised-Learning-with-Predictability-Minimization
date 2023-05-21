@@ -154,11 +154,7 @@ class CLLinPredMin(BaseMethod):
         out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
         out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
 
-        print(out_1_norm.dtype)
-
         embeddings = torch.cat((out_1_norm, out_2_norm), 0)
-
-        print(embeddings.dtype)
 
         number_to_mask = int(self.proj_output_dim * self.mask_fraction)
 
@@ -167,9 +163,8 @@ class CLLinPredMin(BaseMethod):
                     number_to_mask / embedding_dimension))
         masked_embeddings = (~masked_indices) * embeddings
         X = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
-        X = X + self.ridge_lambd * torch.eye(self.proj_output_dim, device=embeddings.device, dtype=embeddings.dtype)
-        B = torch.matmul(torch.transpose(masked_embeddings, 0, 1), (masked_indices * embeddings)).full()
-        print(f'X: {X.dtype}, B: {B.dtype}, torch.transpose(masked_embeddings, 0, 1): {torch.transpose(masked_embeddings, 0, 1).dtype},masked_embeddings: {masked_embeddings.dtype}, embeddings: {embeddings.dtype}, masked_indices: {masked_indices.dtype}, (masked_indices * embeddings): {(masked_indices * embeddings).dtype}')
+        X = X + self.ridge_lambd * torch.eye(self.proj_output_dim, device=embeddings.device)
+        B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices * embeddings)
         W = torch.linalg.solve(X, B)
         prediction_loss = average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
 
@@ -205,4 +200,3 @@ def average_predictor_mse_loss(
     prediction_error = torch.mean(only_prediction)
 
     return prediction_error
-
