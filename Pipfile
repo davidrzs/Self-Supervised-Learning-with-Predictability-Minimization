@@ -29,6 +29,8 @@ umap = "*"
 nvidia-dali-cuda110 = "*"
 pillow-simd = "*"
 protobuf = "~=3.20"
+notebook = "*"
+jupyter = "*"
 
 [dev-packages]
 

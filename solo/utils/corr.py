@@ -1,6 +1,7 @@
 
 import math
 import os
+import pathlib
 import random
 import string
 import time
@@ -23,11 +24,10 @@ from tqdm import tqdm
 
 
 def calculate_correlation(
-        self,
         device: str,
         model: nn.Module,
         dataloader: torch.utils.data.DataLoader,
-        csv_path: str,
+        path: str,
 ):
     """Produces a UMAP visualization by forwarding all data of the
     first validation dataloader through the model.
@@ -43,6 +43,10 @@ def calculate_correlation(
     data = []
     Y = []
 
+    path = pathlib.Path(path)
+    path.mkdir(exist_ok=True)
+
+
     # set module to eval model and collect all feature representations
     model.eval()
     with torch.no_grad():
@@ -55,16 +59,17 @@ def calculate_correlation(
             Y.append(y.cpu())
     model.train()
 
-    nr_of_elements = len(Y)
-
     data = torch.cat(data, dim=0).numpy()
+
+    data_standardized = (data - data.mean(0)) / data.std(0)
+
     Y = torch.cat(Y, dim=0)
-    num_classes = len(torch.unique(Y))
     Y = Y.numpy()
+    corr = (np.transpose(data_standardized) @ data_standardized) / data_standardized.shape[0]
 
-    corr = (np.transpose(data) @ data) / nr_of_elements
-
-    np.savetxt(csv_path, corr, delimiter=",")
+    np.savetxt(path / Path('labels.csv'), Y, delimiter=",")
+    np.savetxt(path / Path('data_standardized.csv'), data_standardized, delimiter=",")
+    np.savetxt(path / Path('correlation.csv'), corr, delimiter=",")
 
 
 

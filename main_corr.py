@@ -22,9 +22,7 @@ import json
 import os
 from pathlib import Path
 
-import hydra
-from omegaconf import DictConfig, OmegaConf
-from pytorch_lightning.utilities.seed import seed_everything
+from omegaconf import OmegaConf
 
 from solo.args.corr import parse_args_corr
 from solo.data.classification_dataloader import prepare_data
@@ -32,14 +30,7 @@ from solo.methods import METHODS
 from solo.utils.corr import calculate_correlation
 
 
-@hydra.main(version_base="1.2")
-def main(cfg: DictConfig):
-    # hydra doesn't allow us to add new keys for "safety"
-    # set_struct(..., False) disables this behavior and allows us to add more parameters
-    # without making the user specify every single thing about the model
-    OmegaConf.set_struct(cfg, False)
-
-    seed_everything(cfg.seed)
+def main():
     args = parse_args_corr()
 
     # build paths
@@ -50,19 +41,14 @@ def main(cfg: DictConfig):
     # load arguments
     with open(args_path) as f:
         method_args = json.load(f)
-
-    method_args['cfg'] = cfg
-    print(method_args)
-
-    print(method_args['checkpoint'])
+    cfg = OmegaConf.create(method_args)
 
     # build the model
     model = (
         METHODS[method_args["method"]]
-        .load_from_checkpoint(ckpt_path, strict=False, **method_args)
+        .load_from_checkpoint(ckpt_path, strict=False, cfg=cfg)
         .backbone
     )
-    model.cuda()
 
     # prepare data
     train_loader, val_loader = prepare_data(
@@ -72,7 +58,7 @@ def main(cfg: DictConfig):
         data_format=args.data_format,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
-        auto_augment=args.auto_augment,
+        auto_augment=False,
     )
 
     # move model to the gpu
@@ -80,9 +66,9 @@ def main(cfg: DictConfig):
     model = model.to(device)
 
     calculate_correlation(device, model, train_loader,
-                          f'{args.dataset}_{args.pretrained_checkpoint_dir.replace("/", "-")}_train_corr.csv')
+                          f'./correlation_analysis/{args.dataset}_{args.pretrained_checkpoint_dir.replace("/", "-")}_train')
     calculate_correlation(device, model, val_loader,
-                          f'{args.dataset}_{args.pretrained_checkpoint_dir.replace("/", "-")}_val_corr.csv')
+                          f'./correlation_analysis/{args.dataset}_{args.pretrained_checkpoint_dir.replace("/", "-")}_val')
 
 
 if __name__ == "__main__":

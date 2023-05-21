@@ -4,6 +4,9 @@ runs/
 # files from pycharm
 .idea/
 
+# ignore all files from the correlation analysis
+correlation_analysis/
+
 # wandb dir
 wandb/
 wandb*/
