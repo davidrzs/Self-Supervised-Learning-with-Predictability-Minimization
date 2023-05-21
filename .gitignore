@@ -1,6 +1,9 @@
 # tensorboard dir
 runs/
 
+# files from pycharm
+.idea/
+
 # wandb dir
 wandb/
 wandb*/
