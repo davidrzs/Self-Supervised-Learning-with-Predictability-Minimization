@@ -29,16 +29,6 @@ def calculate_correlation(
         dataloader: torch.utils.data.DataLoader,
         path: str,
 ):
-    """Produces a UMAP visualization by forwarding all data of the
-    first validation dataloader through the model.
-    **Note: the model should produce features for the forward() function.
-
-    Args:
-        device (str): gpu/cpu device.
-        model (nn.Module): current model.
-        dataloader (torch.utils.data.Dataloader): current dataloader containing data.
-        csv_path (str): path to save the csv.
-    """
 
     data = []
     Y = []
