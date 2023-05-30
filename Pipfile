@@ -3,34 +3,18 @@ url = "https://pypi.org/simple"
 verify_ssl = true
 name = "pypi"
 
-[[source]]
-url = "https://developer.download.nvidia.com/compute/redist"
-verify_ssl = true
-name = "nvidia"
-
 [packages]
 torch = ">=1.10.0"
 torchvision = ">=0.11.1"
 einops = "*"
-pytorch-lightning = "==2.0.2"
+pytorch-lightning = "==1.9.0"
 torchmetrics = "<0.12.0,>=0.6.0"
-lightning-bolts = ">=0.6.0"
 tqdm = "*"
 wandb = "*"
 scipy = "*"
-timm = "~=0.6.13"
+timm = "*"
 scikit-learn = "*"
 hydra-core = "*"
-h5py = "*"
-pandas = "*"
-seaborn = "*"
-matplotlib = "*"
-umap = "*"
-nvidia-dali-cuda110 = "*"
-protobuf = "~=3.20"
-notebook = "*"
-jupyter = "*"
-pillow = "*"
 
 [dev-packages]
 

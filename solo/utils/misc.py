@@ -27,9 +27,16 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 from omegaconf import OmegaConf
-from solo.data.h5_dataset import H5Dataset
 from timm.models.helpers import group_parameters
 from timm.optim.optim_factory import _layer_map
+
+
+try:
+    from solo.data.h5_dataset import H5Dataset
+except ImportError:
+    _h5_available = False
+else:
+    _h5_available = True
 
 
 def _1d_filter(tensor: torch.Tensor) -> torch.Tensor:
@@ -265,6 +272,7 @@ def compute_dataset_size(
         size = DATASET_SIZES.get(dataset.lower(), {}).get("train" if train else "val", None)
 
     if data_format == "h5":
+        assert _h5_available
         size = len(H5Dataset(dataset, data_path))
 
     if size is None:
@@ -295,7 +303,8 @@ def generate_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False):
     """Adapted from https://github.com/facebookresearch/mae.
     grid_size: int of the grid height and width
     return:
-    pos_embed: [grid_size*grid_size, embed_dim] or [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
+    pos_embed: [grid_size*grid_size, embed_dim] or
+        [1+grid_size*grid_size, embed_dim] (w/ or w/o cls_token)
     """
 
     grid_h = np.arange(grid_size, dtype=np.float32)
@@ -331,7 +340,7 @@ def generate_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
 
     assert embed_dim % 2 == 0
-    omega = np.arange(embed_dim // 2, dtype=np.float)
+    omega = np.arange(embed_dim // 2, dtype=float)
     omega /= embed_dim / 2.0
     omega = 1.0 / 10000**omega  # (D/2,)
 
