@@ -19,27 +19,18 @@ method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
   mask_fraction: 0.5
-  lamb: 0.2
+  lamb: 0.15
   ridge_lambd: 0
   proj_size: 3
-  normalize: True
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
   val_path: "./datasets"
   format: "image_folder"
   num_workers: 4
-#optimizer:
-#  name: "adamw"
-#  batch_size: 512
-#  lr: 5e-3
-#  weight_decay: 1e-6
-#  classifier_lr: 5e-4
-#  kwargs:
-#    betas: [0.9, 0.999]
 optimizer:
   name: "lars"
-  batch_size: 256
+  batch_size: 512
   lr: 0.3
   classifier_lr: 0.1
   weight_decay: 1e-4
@@ -55,10 +46,11 @@ checkpoint:
   frequency: 1
 auto_resume:
   enabled: False
+
 # overwrite PL stuff
 max_epochs: 1000
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 16-mixed
+precision: 16

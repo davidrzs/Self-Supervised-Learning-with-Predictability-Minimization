@@ -21,8 +21,8 @@ method_kwargs:
   scale_loss: 0.1
 data:
   dataset: imagenet100
-  train_path: "/home/david/data/ILSVRC2012_img_train_100"
-  val_path: "/home/david/data/ILSVRC2012_img_val_100"
+  train_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_train_100"
+  val_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_val_100"
   format: "dali"
   num_workers: 4
 optimizer:
@@ -46,7 +46,7 @@ auto_resume:
 
 # overwrite PL stuff
 max_epochs: 400
-devices: [0]
+devices: [0, 1]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"

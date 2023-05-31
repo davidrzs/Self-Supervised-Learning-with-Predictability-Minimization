@@ -49,6 +49,12 @@ def cl_lin_pred_min_loss_func(
 
     embeddings = torch.cat((out_1_norm, out_2_norm), 0)
 
+    # sync all embeddings:
+    if dist.is_available() and dist.is_initialized():
+        embeddings_list = [torch.zeros_like(embeddings) for _ in range(dist.get_world_size())]
+        dist.all_gather(embeddings_list, embeddings)
+        embeddings = torch.cat(embeddings_list, dim=0)
+
     number_to_mask = int(proj_output_dim * mask_fraction)
 
     batch_size, embedding_dimension = embeddings.shape
@@ -64,9 +70,14 @@ def cl_lin_pred_min_loss_func(
     del masked_embeddings, masked_indices
 
     # cross-correlation matrix
-    c = (out_1_norm.T @ out_2_norm) / batch_size
+    corr = (out_1_norm.T @ out_2_norm) / batch_size
 
-    diag_loss = torch.diagonal(c).add(-1).pow(2).sum()
+    if dist.is_available() and dist.is_initialized():
+        dist.all_reduce(corr)
+        world_size = dist.get_world_size()
+        corr /= world_size
+
+    diag_loss = torch.diagonal(corr).add(-1).pow(2).sum()
 
     # note the minus as we try to maximize the prediction loss
     total_loss = diag_loss - lamb * (proj_output_dim * prediction_loss)

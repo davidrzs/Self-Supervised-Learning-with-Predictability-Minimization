@@ -19,19 +19,18 @@ method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
   mask_fraction: 0.5
-  lamb: 0.1
+  lamb: 0.2
   ridge_lambd: 0
   proj_size: 3
-  normalize: True
 data:
   dataset: imagenet100
-  train_path: "/home/david/data/imagenet_100/train"
-  val_path: "/home/david/data/imagenet_100/val"
+  train_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_train_100"
+  val_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_val_100"
   format: "dali"
   num_workers: 4
 optimizer:
   name: "lars"
-  batch_size: 128
+  batch_size: 256
   lr: 0.3
   classifier_lr: 0.1
   weight_decay: 1e-4
@@ -48,9 +47,9 @@ checkpoint:
 auto_resume:
   enabled: False
 # overwrite PL stuff
-max_epochs: 400
+max_epochs: 1000
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 16-mixed
+precision: 16
