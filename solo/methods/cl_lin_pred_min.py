@@ -133,7 +133,7 @@ class CLLinPredMin(BaseMethod):
         class_loss = out["loss"]
         z1, z2 = out["z"]
 
-        total_loss, diag_loss, prediction_loss = cl_lin_pred_min_loss_func(z1, z2, lamb=self.lamb)
+        total_loss, diag_loss, prediction_loss = cl_lin_pred_min_loss_func(z1, z2, lamb=self.lamb, ridge_lambd=self.ridge_lambd, mask_fraction=self.mask_fraction)
 
         self.log("train_cl_pred_min_on_diag_loss", diag_loss, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)

@@ -57,8 +57,8 @@ def cl_lin_pred_min_loss_func(
 
     number_to_mask = int(proj_output_dim * mask_fraction)
 
-    batch_size, embedding_dimension = embeddings.shape
-    masked_indices = (torch.rand(batch_size, embedding_dimension, device=embeddings.device) < (
+    embedding_batch_size, embedding_dimension = embeddings.shape
+    masked_indices = (torch.rand(embedding_batch_size, embedding_dimension, device=embeddings.device) < (
             number_to_mask / embedding_dimension))
     masked_embeddings = (~masked_indices) * embeddings
     X = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
