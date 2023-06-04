@@ -1,4 +1,3 @@
-# Copyright 2023 David Zollikofer - ETH Zürich.
 # Copyright 2023 solo-learn development team.
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy of
@@ -24,7 +23,7 @@ import omegaconf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from solo.losses.cl_lin_pred_min import cl_lin_pred_min_loss_func
+from solo.losses.barlow import barlow_loss_func
 from solo.methods.base import BaseMethod
 from solo.utils.misc import omegaconf_select
 import torch.distributed as dist
@@ -32,6 +31,14 @@ import torch.distributed as dist
 
 class CLLinPredMin(BaseMethod):
     def __init__(self, cfg: omegaconf.DictConfig):
+        """Implements Barlow Twins (https://arxiv.org/abs/2103.03230)
+
+        Extra cfg settings:
+            method_kwargs:
+                proj_hidden_dim (int): number of neurons of the hidden layers of the projector.
+                proj_output_dim (int): number of dimensions of projected features.
+                lamb (float): off-diagonal scaling factor for the cross-covariance matrix.
+        """
 
         super().__init__(cfg)
 
@@ -133,13 +140,52 @@ class CLLinPredMin(BaseMethod):
         class_loss = out["loss"]
         z1, z2 = out["z"]
 
-        total_loss, diag_loss, prediction_loss = cl_lin_pred_min_loss_func(z1, z2, lamb=self.lamb, ridge_lambd=self.ridge_lambd, mask_fraction=self.mask_fraction)
+        z1_norm = F.normalize(z1, dim=-1)
+        z2_norm = F.normalize(z2, dim=-1)
 
-        self.log("train_cl_pred_min_on_diag_loss", diag_loss, on_epoch=True, sync_dist=True)
-        self.log("train_cl_pred_min_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
-        self.log("train_cl_pred_min_total_loss", total_loss, on_epoch=True, sync_dist=True)
 
-        return total_loss + class_loss
+        batch_size, _ = z1_norm.size()
+
+        out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
+        out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
+
+        embeddings = torch.cat((out_1_norm, out_2_norm), 0)
+
+        number_to_mask = int(self.proj_output_dim * self.mask_fraction)
+
+        batch_size, embedding_dimension = embeddings.shape
+        masked_indices = (torch.rand(batch_size, embedding_dimension, device=embeddings.device) < (
+                    number_to_mask / embedding_dimension))
+        masked_embeddings = (~masked_indices) * embeddings
+        X = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
+        X = X + self.ridge_lambd * torch.eye(self.proj_output_dim, device=embeddings.device)
+        B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices * embeddings)
+        W = torch.linalg.solve(X.float(), B.float())
+        prediction_loss = average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
+
+        del masked_embeddings, masked_indices
+
+        last_prediction_loss = prediction_loss
+
+        # cross-correlation matrix
+        c = (out_1_norm.T @ out_2_norm) / self.batch_size
+
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(c)
+            world_size = dist.get_world_size()
+            c /= world_size
+
+        on_diag = torch.diagonal(c).add(-1).pow(2).sum()
+
+        # note the minus as we try to maximize the prediction loss
+        loss = on_diag - self.lamb * (self.proj_output_dim * last_prediction_loss)
+
+        self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_min_last_pred_loss", last_prediction_loss, on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
+
+        return loss + class_loss
+
 
 
 
