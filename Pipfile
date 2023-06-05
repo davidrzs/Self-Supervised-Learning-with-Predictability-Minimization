@@ -26,6 +26,7 @@ pandas = "*"
 umap-learn = "*"
 h5py = "*"
 nvidia-dali-cuda110 = "*"
+notebook = "*"
 
 [dev-packages]
 
