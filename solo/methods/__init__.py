@@ -19,6 +19,7 @@
 
 from solo.methods.barlow_twins import BarlowTwins
 from solo.methods.cl_lin_pred_min import CLLinPredMin
+from solo.methods.cl_non_lin_pred_min import CLNonLinPredMin
 from solo.methods.base import BaseMethod
 from solo.methods.byol import BYOL
 from solo.methods.deepclusterv2 import DeepClusterV2
@@ -45,6 +46,7 @@ METHODS = {
     "linear": LinearModel,
     # methods
     "cl_lin_pred_min": CLLinPredMin,
+    "cl_non_lin_pred_min": CLNonLinPredMin,
     "barlow_twins": BarlowTwins,
     "byol": BYOL,
     "deepclusterv2": DeepClusterV2,

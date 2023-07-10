@@ -273,6 +273,7 @@ class BaseMethod(pl.LightningModule):
         """
 
         # default for extra backbone kwargs (use pytorch's default if not available)
+        print(cfg)
         cfg.backbone.kwargs = omegaconf_select(cfg, "backbone.kwargs", {})
 
         # default parameters for optimizer
