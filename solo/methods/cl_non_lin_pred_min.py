@@ -175,17 +175,17 @@ class CLNonLinPredMin(BaseMethod):
         z1_predictor_train_norm = F.normalize(z1_predictor_train, dim=-1)
         z2_predictor_train_norm = F.normalize(z2_predictor_train, dim=-1)
 
-        z1_predictor_train_eval = F.normalize(z1_predictor_eval, dim=-1)
-        z2_predictor_train_eval = F.normalize(z2_predictor_eval, dim=-1)
+        z1_predictor_eval_norm = F.normalize(z1_predictor_eval, dim=-1)
+        z2_predictor_eval_norm = F.normalize(z2_predictor_eval, dim=-1)
 
-        out_1_norm_train = (z1_predictor_train_norm - z1_predictor_train_norm.mean(dim=0)) / z1_predictor_train_norm.std(dim=0)
-        out_2_norm_train = (z2_predictor_train_norm - z2_predictor_train_norm.mean(dim=0)) / z2_predictor_train_norm.std(dim=0)
+        out_1_norm_predictor_train = (z1_predictor_train_norm - z1_predictor_train_norm.mean(dim=0)) / z1_predictor_train_norm.std(dim=0)
+        out_2_norm_predictor_train = (z2_predictor_train_norm - z2_predictor_train_norm.mean(dim=0)) / z2_predictor_train_norm.std(dim=0)
 
-        out_1_norm_predictor_eval = (z1_predictor_train_eval - z1_predictor_train_eval.mean(dim=0)) / z1_predictor_train_eval.std(dim=0)
-        out_2_norm_predictor_eval = (z2_predictor_train_eval - z2_predictor_train_eval.mean(dim=0)) / z2_predictor_train_eval.std(dim=0)
+        out_1_norm_predictor_eval = (z1_predictor_eval_norm - z1_predictor_eval_norm.mean(dim=0)) / z1_predictor_eval_norm.std(dim=0)
+        out_2_norm_predictor_eval = (z2_predictor_eval_norm - z2_predictor_eval_norm.mean(dim=0)) / z2_predictor_eval_norm.std(dim=0)
 
 
-        embeddings_train = torch.cat((out_1_norm_train, out_2_norm_train), 0)
+        embeddings_train = torch.cat((out_1_norm_predictor_train, out_2_norm_predictor_train), 0)
         embeddings_eval = torch.cat((out_1_norm_predictor_eval, out_2_norm_predictor_eval), 0)
 
         number_to_mask = int(self.proj_output_dim * self.mask_fraction)
@@ -214,9 +214,6 @@ class CLNonLinPredMin(BaseMethod):
 
         prediction_loss = average_predictor_mse_loss(predictions, masked_embeddings_eval, masked_indices_eval)
 
-
-        last_prediction_loss = prediction_loss
-
         # cross-correlation matrix
         c = (out_1_norm_predictor_eval.T @ out_2_norm_predictor_eval) / batch_size_eval
 
@@ -228,10 +225,10 @@ class CLNonLinPredMin(BaseMethod):
         on_diag = torch.diagonal(c).add(-1).pow(2).sum()
 
         # note the minus as we try to maximize the prediction loss
-        loss = on_diag - self.lamb * (self.proj_output_dim * last_prediction_loss)
+        loss = on_diag - self.lamb * (self.proj_output_dim * prediction_loss)
 
         self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
-        self.log("train_cl_pred_min_last_pred_loss", last_prediction_loss, on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_min_last_pred_loss", prediction_loss, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
 
         return loss + class_loss

@@ -18,9 +18,9 @@ backbone:
 method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
-  predictor_train_batch_size: 128
+  predictor_train_batch_size: 64
   mask_fraction: 0.5
-  lamb: 0.2
+  lamb: 0.0
   ridge_lambd: 0
   proj_size: 3
 data:
@@ -31,7 +31,7 @@ data:
   num_workers: 4
 optimizer:
   name: "lars"
-  batch_size: 256
+  batch_size: 312
   lr: 0.3
   classifier_lr: 0.1
   weight_decay: 1e-4
