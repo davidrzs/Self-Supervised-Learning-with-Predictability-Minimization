@@ -42,18 +42,12 @@ class CLNonLinPredMin(BaseMethod):
 
         super().__init__(cfg)
 
-
-        # this method works only with a single GPU!
-        assert torch.cuda.device_count() <= 1
-
         self.lamb: float = cfg.method_kwargs.lamb
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
         self.ridge_lambd : float = cfg.method_kwargs.ridge_lambd
 
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
-
-        self.predictor_train_batch_size : int = cfg.method_kwargs.predictor_train_batch_size
 
 
         # projector
@@ -80,12 +74,9 @@ class CLNonLinPredMin(BaseMethod):
                 nn.Linear(self.proj_hidden_dim, self.proj_output_dim),
             )
 
-            # predictor
-            self.predictor = Predictor(self.proj_output_dim)
-            self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters())
-
-
-
+        # predictor
+        self.predictor = Predictor(self.proj_output_dim)
+        self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters())
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
@@ -149,73 +140,60 @@ class CLNonLinPredMin(BaseMethod):
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
 
-        # we split up the batch into the predictor training and evaluation part:
-        img_indexes = batch[0]
-        crops = batch[1]
-        labels = batch[2]
+        out = super().training_step(batch, batch_idx)
+        class_loss = out["loss"]
+        z1, z2 = out["z"]
 
-        batch_predictor_train = [img_indexes[:self.predictor_train_batch_size], [crops[0][:self.predictor_train_batch_size], crops[1][:self.predictor_train_batch_size]], labels[:self.predictor_train_batch_size]]
-        batch_predictor_eval = [img_indexes[self.predictor_train_batch_size:], [crops[0][self.predictor_train_batch_size:], crops[1][self.predictor_train_batch_size:]], labels[self.predictor_train_batch_size:]]
-
-
-        with torch.no_grad():
-            out_predictor_train = super().training_step(batch_predictor_train, batch_idx)
-        out_predictor_eval = super().training_step(batch_predictor_eval, batch_idx)
-
-        class_loss = out_predictor_eval["loss"]
+        z1_norm = F.normalize(z1, dim=-1)
+        z2_norm = F.normalize(z2, dim=-1)
 
 
-        z1_predictor_train, z2_predictor_train = out_predictor_train["z"]
-        z1_predictor_eval, z2_predictor_eval = out_predictor_eval["z"]
+        batch_size, _ = z1_norm.size()
 
-        z1_predictor_train = z1_predictor_train.detach()
-        z2_predictor_train = z2_predictor_train.detach()
+        out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
+        out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
 
-
-        z1_predictor_train_norm = F.normalize(z1_predictor_train, dim=-1)
-        z2_predictor_train_norm = F.normalize(z2_predictor_train, dim=-1)
-
-        z1_predictor_eval_norm = F.normalize(z1_predictor_eval, dim=-1)
-        z2_predictor_eval_norm = F.normalize(z2_predictor_eval, dim=-1)
-
-        out_1_norm_predictor_train = (z1_predictor_train_norm - z1_predictor_train_norm.mean(dim=0)) / z1_predictor_train_norm.std(dim=0)
-        out_2_norm_predictor_train = (z2_predictor_train_norm - z2_predictor_train_norm.mean(dim=0)) / z2_predictor_train_norm.std(dim=0)
-
-        out_1_norm_predictor_eval = (z1_predictor_eval_norm - z1_predictor_eval_norm.mean(dim=0)) / z1_predictor_eval_norm.std(dim=0)
-        out_2_norm_predictor_eval = (z2_predictor_eval_norm - z2_predictor_eval_norm.mean(dim=0)) / z2_predictor_eval_norm.std(dim=0)
-
-
-        embeddings_train = torch.cat((out_1_norm_predictor_train, out_2_norm_predictor_train), 0)
-        embeddings_eval = torch.cat((out_1_norm_predictor_eval, out_2_norm_predictor_eval), 0)
+        embeddings = torch.cat((out_1_norm, out_2_norm), 0)
 
         number_to_mask = int(self.proj_output_dim * self.mask_fraction)
 
-        batch_size_train, embedding_dimension = embeddings_train.shape
-        batch_size_eval, _ = embeddings_eval.shape
+        batch_size, embedding_dimension = embeddings.shape
 
-        masked_indices_train = (torch.rand(batch_size_train, embedding_dimension, device=embeddings_train.device) < (number_to_mask / embedding_dimension))
-        masked_embeddings_train = (~masked_indices_train) * embeddings_train
+        masked_indices_train = (torch.rand(batch_size, embedding_dimension, device=embeddings.device) < (
+                    number_to_mask / embedding_dimension))
+        masked_indices_eval = (torch.rand(batch_size, embedding_dimension, device=embeddings.device) < (
+                    number_to_mask / embedding_dimension))
 
-        masked_indices_eval = (torch.rand(batch_size_eval, embedding_dimension, device=embeddings_eval.device) < (number_to_mask / embedding_dimension))
-        masked_embeddings_eval = (~masked_indices_eval) * embeddings_eval
+        masked_embeddings_train = (~masked_indices_train) * embeddings
+        masked_embeddings_eval = (~masked_indices_eval) * embeddings
 
+        # detach from computation tree
+        embeddings_train = embeddings.clone().detach()
+        masked_embeddings_train = masked_embeddings_train.detach()
+        self.predictor_optimizer.zero_grad()
 
         # now we can train the predictor with them:
         predictions = self.predictor(masked_embeddings_train)
         predictor_loss = average_predictor_mse_loss(predictions, embeddings_train, masked_indices_train)
         predictor_loss.backward()
-        self.log("train_cl_pred_min_predictor_loss", predictor_loss.mean(), on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_min_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
         self.predictor_optimizer.step()
         self.predictor_optimizer.zero_grad()
 
         # having trained the predictor we can predict the real embeddings:
-        with torch.no_grad():
-            predictions = self.predictor(masked_embeddings_eval)
 
-        prediction_loss = average_predictor_mse_loss(predictions, masked_embeddings_eval, masked_indices_eval)
+        predictions = self.predictor(masked_embeddings_eval)
+
+        prediction_loss = average_predictor_mse_loss(predictions, embeddings, masked_indices_eval)
+
+        self.log("eval_cl_pred_min_predictor_loss", prediction_loss, on_epoch=True, sync_dist=True)
+
+        del masked_indices_train, masked_indices_eval, masked_embeddings_train, masked_embeddings_eval
+
+        last_prediction_loss = prediction_loss
 
         # cross-correlation matrix
-        c = (out_1_norm_predictor_eval.T @ out_2_norm_predictor_eval) / batch_size_eval
+        c = (out_1_norm.T @ out_2_norm) / self.batch_size
 
         if dist.is_available() and dist.is_initialized():
             dist.all_reduce(c)
@@ -225,13 +203,14 @@ class CLNonLinPredMin(BaseMethod):
         on_diag = torch.diagonal(c).add(-1).pow(2).sum()
 
         # note the minus as we try to maximize the prediction loss
-        loss = on_diag - self.lamb * (self.proj_output_dim * prediction_loss)
+        loss = on_diag - self.lamb * (self.proj_output_dim * last_prediction_loss)
 
         self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
-        self.log("train_cl_pred_min_last_pred_loss", prediction_loss, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
 
         return loss + class_loss
+
+
 
 
 def average_predictor_mse_loss(
@@ -245,6 +224,8 @@ def average_predictor_mse_loss(
     prediction_error = torch.mean(only_prediction)
 
     return prediction_error
+
+
 
 def individual_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor):
     assert predictions.shape == labels.shape

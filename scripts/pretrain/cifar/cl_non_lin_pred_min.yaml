@@ -18,9 +18,8 @@ backbone:
 method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
-  predictor_train_batch_size: 64
   mask_fraction: 0.5
-  lamb: 0.0
+  lamb: 0.05
   ridge_lambd: 0
   proj_size: 3
 data:
@@ -31,7 +30,7 @@ data:
   num_workers: 4
 optimizer:
   name: "lars"
-  batch_size: 312
+  batch_size: 256
   lr: 0.3
   classifier_lr: 0.1
   weight_decay: 1e-4
@@ -52,5 +51,5 @@ max_epochs: 1000
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
-strategy: "ddp_find_unused_parameters_true"
+strategy: "ddp"
 precision: 16-mixed
