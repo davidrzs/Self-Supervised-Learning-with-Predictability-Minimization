@@ -155,9 +155,9 @@ class CLNonLinPredMin(BaseMethod):
 
         # embeddings = torch.cat((out_1_norm, out_2_norm), 0)
 
-        # here we split the embeddings into train and test (first half of out_1_norm & out_2_norm is train, second half is test)
-        embeddings_train = torch.concat((out_1_norm[:batch_size//2], out_2_norm[:batch_size//2]), 0).clone().detach()
-        embeddings_eval = torch.concat((out_1_norm[batch_size//2:], out_2_norm[batch_size//2:]), 0)
+        # here we split the embeddings into train and test
+        embeddings_train = out_1_norm.clone().detach()
+        embeddings_eval = out_2_norm
         
 
 
@@ -165,61 +165,39 @@ class CLNonLinPredMin(BaseMethod):
 
         batch_size, embedding_dimension = out_1_norm.shape
 
+        masked_indices_train = (torch.rand(batch_size, embedding_dimension, device=embeddings_train.device) < (
+                    number_to_mask / embedding_dimension))
         masked_indices_eval = (torch.rand(batch_size, embedding_dimension, device=embeddings_eval.device) < (
                     number_to_mask / embedding_dimension))
 
+        masked_embeddings_train = (~masked_indices_train) * embeddings_train
         masked_embeddings_eval = (~masked_indices_eval) * embeddings_eval
 
-        
-        
-        # get a first guess at how good the predictor is
-        self.predictor.eval() 
+        # detach from computation tree
+        masked_embeddings_train = masked_embeddings_train
+        self.predictor_optimizer.zero_grad()
+
+        # now we can train the predictor with them:
+        predictions = self.predictor(masked_embeddings_train)
+        predictor_loss = average_predictor_mse_loss(predictions, embeddings_train, masked_indices_train)
+        predictor_loss.backward()
+        self.log("train_cl_pred_min_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
+        self.predictor_optimizer.step()
+        self.predictor_optimizer.zero_grad()
+
+        # having trained the predictor we can predict the real embeddings:
+
         predictions = self.predictor(masked_embeddings_eval)
-        self.predictor.train()
+
         prediction_loss = average_predictor_mse_loss(predictions, embeddings_eval, masked_indices_eval)
 
-
-        
-        # here we train the predictor while the validation loss is still going down 
-        self.log("train_cl_pred_first_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
-
-        
-        # this emulates a do-while loop
-        counter = 0
-        while True:
-            counter += 1
-            
-            masked_indices_train = (torch.rand(batch_size, embedding_dimension, device=embeddings_train.device) < (
-                    number_to_mask / embedding_dimension))
-            masked_embeddings_train = (~masked_indices_train) * embeddings_train
-
-            # train for one round:
-            self.predictor_optimizer.zero_grad()
-            predictions = self.predictor(masked_embeddings_train)
-            prediction_loss_train = average_predictor_mse_loss(predictions, embeddings_train, masked_indices_train)
-            prediction_loss_train.backward()
-            self.predictor_optimizer.step()
-            self.predictor_optimizer.zero_grad()
-            self.predictor.eval() 
-            predictions = self.predictor(masked_embeddings_eval)
-            prediction_loss_new = average_predictor_mse_loss(predictions, embeddings_eval, masked_indices_eval)
-            self.predictor.train()
-            if (prediction_loss_new >= prediction_loss).item() or counter > 50:
-                prediction_loss = prediction_loss_new
-                break
-            prediction_loss = prediction_loss_new
-
-            
-        self.log("train_cl_pred_last_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
-        
-        self.log("train_cl_pred_last_counter", counter, on_epoch=True, sync_dist=True)
-
+        self.log("eval_cl_pred_min_predictor_loss", prediction_loss, on_epoch=True, sync_dist=True)
         self.log("eval_cl_pred_min_predictor_loss_log", torch.log(prediction_loss), on_epoch=True, sync_dist=True)
 
 
         del masked_indices_train, masked_indices_eval, masked_embeddings_train, masked_embeddings_eval
 
-        last_prediction_loss = torch.log(prediction_loss)
+        last_prediction_loss = (prediction_loss)
 
         # cross-correlation matrix
         c = (out_1_norm.T @ out_2_norm) / self.batch_size

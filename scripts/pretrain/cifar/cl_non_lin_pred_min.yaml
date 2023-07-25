@@ -19,7 +19,7 @@ method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
   mask_fraction: 0.5
-  lamb: 0.05
+  lamb: 0.005
   ridge_lambd: 0
   proj_size: 3
 data:

@@ -42,12 +42,18 @@ class CLNonLinPredMin(BaseMethod):
 
         super().__init__(cfg)
 
+
+        # this method works only with a single GPU!
+        assert torch.cuda.device_count() <= 1
+
         self.lamb: float = cfg.method_kwargs.lamb
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
         self.ridge_lambd : float = cfg.method_kwargs.ridge_lambd
 
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
+
+        self.predictor_train_batch_size : int = cfg.method_kwargs.predictor_train_batch_size
 
 
         # projector
@@ -74,9 +80,12 @@ class CLNonLinPredMin(BaseMethod):
                 nn.Linear(self.proj_hidden_dim, self.proj_output_dim),
             )
 
-        # predictor
-        self.predictor = Predictor(self.proj_output_dim)
-        self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters(), weight_decay=1e-4)
+            # predictor
+            self.predictor = Predictor(self.proj_output_dim)
+            self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters())
+
+
+
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
@@ -140,89 +149,73 @@ class CLNonLinPredMin(BaseMethod):
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
 
-        out = super().training_step(batch, batch_idx)
-        class_loss = out["loss"]
-        z1, z2 = out["z"]
+        # we split up the batch into the predictor training and evaluation part:
+        img_indexes = batch[0]
+        crops = batch[1]
+        labels = batch[2]
 
-        z1_norm = F.normalize(z1, dim=-1)
-        z2_norm = F.normalize(z2, dim=-1)
+        batch_predictor_train = [img_indexes[:self.predictor_train_batch_size], [crops[0][:self.predictor_train_batch_size], crops[1][:self.predictor_train_batch_size]], labels[:self.predictor_train_batch_size]]
+        batch_predictor_eval = batch # [img_indexes[self.predictor_train_batch_size:], [crops[0][self.predictor_train_batch_size:], crops[1][self.predictor_train_batch_size:]], labels[self.predictor_train_batch_size:]]
 
 
-        batch_size, _ = z1_norm.size()
+        with torch.no_grad():
+            out_predictor_train = super().training_step(batch_predictor_train, batch_idx)
+        out_predictor_eval = super().training_step(batch_predictor_eval, batch_idx)
 
-        out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
-        out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
+        class_loss = out_predictor_eval["loss"]
 
-        # embeddings = torch.cat((out_1_norm, out_2_norm), 0)
 
-        # here we split the embeddings into train and test (first half of out_1_norm & out_2_norm is train, second half is test)
-        embeddings_train = torch.concat((out_1_norm[:batch_size//2], out_2_norm[:batch_size//2]), 0).clone().detach()
-        embeddings_eval = torch.concat((out_1_norm[batch_size//2:], out_2_norm[batch_size//2:]), 0)
-        
+        z1_predictor_train, z2_predictor_train = out_predictor_train["z"]
+        z1_predictor_eval, z2_predictor_eval = out_predictor_eval["z"]
 
+        z1_predictor_train = z1_predictor_train.detach()
+        z2_predictor_train = z2_predictor_train.detach()
+
+
+        z1_predictor_train_norm = F.normalize(z1_predictor_train, dim=-1)
+        z2_predictor_train_norm = F.normalize(z2_predictor_train, dim=-1)
+
+        z1_predictor_eval_norm = F.normalize(z1_predictor_eval, dim=-1)
+        z2_predictor_eval_norm = F.normalize(z2_predictor_eval, dim=-1)
+
+        out_1_norm_predictor_train = (z1_predictor_train_norm - z1_predictor_train_norm.mean(dim=0)) / z1_predictor_train_norm.std(dim=0)
+        out_2_norm_predictor_train = (z2_predictor_train_norm - z2_predictor_train_norm.mean(dim=0)) / z2_predictor_train_norm.std(dim=0)
+
+        out_1_norm_predictor_eval = (z1_predictor_eval_norm - z1_predictor_eval_norm.mean(dim=0)) / z1_predictor_eval_norm.std(dim=0)
+        out_2_norm_predictor_eval = (z2_predictor_eval_norm - z2_predictor_eval_norm.mean(dim=0)) / z2_predictor_eval_norm.std(dim=0)
+
+
+        embeddings_train = torch.cat((out_1_norm_predictor_train, out_2_norm_predictor_train), 0)
+        embeddings_eval = torch.cat((out_1_norm_predictor_eval, out_2_norm_predictor_eval), 0)
 
         number_to_mask = int(self.proj_output_dim * self.mask_fraction)
 
-        batch_size, embedding_dimension = out_1_norm.shape
+        batch_size_train, embedding_dimension = embeddings_train.shape
+        batch_size_eval, _ = embeddings_eval.shape
 
-        masked_indices_eval = (torch.rand(batch_size, embedding_dimension, device=embeddings_eval.device) < (
-                    number_to_mask / embedding_dimension))
+        masked_indices_train = (torch.rand(batch_size_train, embedding_dimension, device=embeddings_train.device) < (number_to_mask / embedding_dimension))
+        masked_embeddings_train = (~masked_indices_train) * embeddings_train
 
+        masked_indices_eval = (torch.rand(batch_size_eval, embedding_dimension, device=embeddings_eval.device) < (number_to_mask / embedding_dimension))
         masked_embeddings_eval = (~masked_indices_eval) * embeddings_eval
 
-        
-        
-        # get a first guess at how good the predictor is
-        self.predictor.eval() 
-        predictions = self.predictor(masked_embeddings_eval)
-        self.predictor.train()
-        prediction_loss = average_predictor_mse_loss(predictions, embeddings_eval, masked_indices_eval)
 
+        # now we can train the predictor with them:
+        predictions = self.predictor(masked_embeddings_train)
+        predictor_loss = average_predictor_mse_loss(predictions, embeddings_train, masked_indices_train)
+        predictor_loss.backward()
+        self.log("train_cl_pred_min_predictor_loss", predictor_loss.mean(), on_epoch=True, sync_dist=True)
+        self.predictor_optimizer.step()
+        self.predictor_optimizer.zero_grad()
 
-        
-        # here we train the predictor while the validation loss is still going down 
-        self.log("train_cl_pred_first_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
-
-        
-        # this emulates a do-while loop
-        counter = 0
-        while True:
-            counter += 1
-            
-            masked_indices_train = (torch.rand(batch_size, embedding_dimension, device=embeddings_train.device) < (
-                    number_to_mask / embedding_dimension))
-            masked_embeddings_train = (~masked_indices_train) * embeddings_train
-
-            # train for one round:
-            self.predictor_optimizer.zero_grad()
-            predictions = self.predictor(masked_embeddings_train)
-            prediction_loss_train = average_predictor_mse_loss(predictions, embeddings_train, masked_indices_train)
-            prediction_loss_train.backward()
-            self.predictor_optimizer.step()
-            self.predictor_optimizer.zero_grad()
-            self.predictor.eval() 
+        # having trained the predictor we can predict the real embeddings:
+        with torch.no_grad():
             predictions = self.predictor(masked_embeddings_eval)
-            prediction_loss_new = average_predictor_mse_loss(predictions, embeddings_eval, masked_indices_eval)
-            self.predictor.train()
-            if (prediction_loss_new >= prediction_loss).item() or counter > 50:
-                prediction_loss = prediction_loss_new
-                break
-            prediction_loss = prediction_loss_new
 
-            
-        self.log("train_cl_pred_last_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
-        
-        self.log("train_cl_pred_last_counter", counter, on_epoch=True, sync_dist=True)
-
-        self.log("eval_cl_pred_min_predictor_loss_log", torch.log(prediction_loss), on_epoch=True, sync_dist=True)
-
-
-        del masked_indices_train, masked_indices_eval, masked_embeddings_train, masked_embeddings_eval
-
-        last_prediction_loss = torch.log(prediction_loss)
+        prediction_loss = average_predictor_mse_loss(predictions, masked_embeddings_eval, masked_indices_eval)
 
         # cross-correlation matrix
-        c = (out_1_norm.T @ out_2_norm) / self.batch_size
+        c = (out_1_norm_predictor_eval.T @ out_2_norm_predictor_eval) / batch_size_eval
 
         if dist.is_available() and dist.is_initialized():
             dist.all_reduce(c)
@@ -232,14 +225,13 @@ class CLNonLinPredMin(BaseMethod):
         on_diag = torch.diagonal(c).add(-1).pow(2).sum()
 
         # note the minus as we try to maximize the prediction loss
-        loss = on_diag - self.lamb * (self.proj_output_dim * last_prediction_loss)
+        loss = on_diag - self.lamb * (self.proj_output_dim * prediction_loss)
 
         self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_min_last_pred_loss", prediction_loss, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
 
         return loss + class_loss
-
-
 
 
 def average_predictor_mse_loss(
@@ -253,8 +245,6 @@ def average_predictor_mse_loss(
     prediction_error = torch.mean(only_prediction)
 
     return prediction_error
-
-
 
 def individual_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor):
     assert predictions.shape == labels.shape
@@ -271,18 +261,18 @@ def individual_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tenso
 class Predictor(nn.Module):
     def __init__(self, feature_dim):
         super().__init__()
-        # self.l1 = nn.Linear(feature_dim, feature_dim)
-        # self.bn1 = nn.BatchNorm1d(feature_dim)
-        # self.r1 = nn.LeakyReLU()
-        # self.l2 = nn.Linear(feature_dim, feature_dim)
-        # self.bn2 = nn.BatchNorm1d(feature_dim)
-        # self.r2 = nn.LeakyReLU()
+        self.l1 = nn.Linear(feature_dim, feature_dim)
+        self.bn1 = nn.BatchNorm1d(feature_dim)
+        self.r1 = nn.LeakyReLU()
+        self.l2 = nn.Linear(feature_dim, feature_dim)
+        self.bn2 = nn.BatchNorm1d(feature_dim)
+        self.r2 = nn.LeakyReLU()
         self.l3 = nn.Linear(feature_dim, feature_dim)
 
 
     def forward(self, x):
-        # w1 = self.bn1(self.r1(self.l1(x)))
-        # w2 = self.bn2(self.r2(self.l2(w1)))
-        return self.l3(x)
+        w1 = self.bn1(self.r1(self.l1(x)))
+        w2 = self.bn2(self.r2(self.l2(w1)))
+        return self.l3(w2)
 
 
