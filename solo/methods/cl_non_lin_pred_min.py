@@ -165,59 +165,78 @@ class CLNonLinPredMin(BaseMethod):
 
         batch_size, embedding_dimension = out_1_norm.shape
 
-        masked_indices_eval = (torch.rand(batch_size, embedding_dimension, device=embeddings_eval.device) < (
-                    number_to_mask / embedding_dimension))
+        # masked_indices_eval = (torch.rand(batch_size, embedding_dimension, device=embeddings_eval.device) < (
+        #             number_to_mask / embedding_dimension))
 
-        masked_embeddings_eval = (~masked_indices_eval) * embeddings_eval
+        # masked_embeddings_eval = (~masked_indices_eval) * embeddings_eval
 
         
         
+      
+        
+
+
+        mask_train, train_input = to_dataset(embeddings_train, number_to_mask)
+        mask_eval, eval_input = to_dataset(embeddings_eval, number_to_mask)
+                                                                                
         # get a first guess at how good the predictor is
         self.predictor.eval() 
-        predictions = self.predictor(masked_embeddings_eval)
+        predictions = self.predictor(eval_input)
         self.predictor.train()
-        prediction_loss = average_predictor_mse_loss(predictions, embeddings_eval, masked_indices_eval)
+        prediction_loss = average_predictor_mse_loss(predictions, embeddings_eval, mask_eval)
 
-
-        
         # here we train the predictor while the validation loss is still going down 
         self.log("train_cl_pred_first_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
-
         
-        # this emulates a do-while loop
-        counter = 0
-        while True:
-            counter += 1
+        # # this emulates a do-while loop
+        # counter = 0
+        # while True:
+        #     counter += 1
             
-            masked_indices_train = (torch.rand(batch_size, embedding_dimension, device=embeddings_train.device) < (
-                    number_to_mask / embedding_dimension))
-            masked_embeddings_train = (~masked_indices_train) * embeddings_train
+        #     masked_indices_train = (torch.rand(batch_size, embedding_dimension, device=embeddings_train.device) < (
+        #             number_to_mask / embedding_dimension))
+        #     masked_embeddings_train = (~masked_indices_train) * embeddings_train
 
-            # train for one round:
-            self.predictor_optimizer.zero_grad()
-            predictions = self.predictor(masked_embeddings_train)
-            prediction_loss_train = average_predictor_mse_loss(predictions, embeddings_train, masked_indices_train)
-            prediction_loss_train.backward()
-            self.predictor_optimizer.step()
-            self.predictor_optimizer.zero_grad()
-            self.predictor.eval() 
-            predictions = self.predictor(masked_embeddings_eval)
-            prediction_loss_new = average_predictor_mse_loss(predictions, embeddings_eval, masked_indices_eval)
+        #     # train for one round:
+        #     self.predictor_optimizer.zero_grad()
+        #     predictions = self.predictor(masked_embeddings_train)
+        #     prediction_loss_train = average_predictor_mse_loss(predictions, embeddings_train, masked_indices_train)
+        #     prediction_loss_train.backward()
+        #     self.predictor_optimizer.step()
+        #     self.predictor_optimizer.zero_grad()
+        #     self.predictor.eval() 
+        #     predictions = self.predictor(masked_embeddings_eval)
+        #     prediction_loss_new = average_predictor_mse_loss(predictions, embeddings_eval, masked_indices_eval)
+        #     self.predictor.train()
+        #     if (prediction_loss_new >= prediction_loss).item() or counter > 50:
+        #         prediction_loss = prediction_loss_new
+        #         break
+        #     prediction_loss = prediction_loss_new
+
+        opt_steps = 0
+        while True:
             self.predictor.train()
-            if (prediction_loss_new >= prediction_loss).item() or counter > 50:
-                prediction_loss = prediction_loss_new
+            outputs = self.predictor(train_input)
+            predictability_loss = average_predictor_mse_loss(outputs,embeddings_train,mask_train).mean()
+            self.predictor_optimizer.zero_grad()
+            predictability_loss.backward()
+            self.predictor_optimizer.step()
+            opt_steps += 1
+            eval_outputs = self.predictor(eval_input)
+            new_prediction_loss = average_predictor_mse_loss(eval_outputs, embeddings_eval, mask_eval).mean()
+            #print(f'old:{prediction_loss} new:{new_val_loss}')
+            if prediction_loss <= new_prediction_loss:
+                prediction_loss = new_prediction_loss
                 break
-            prediction_loss = prediction_loss_new
-
+            else:
+                prediction_loss = new_prediction_loss
             
         self.log("train_cl_pred_last_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
         
-        self.log("train_cl_pred_last_counter", counter, on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_last_counter", opt_steps, on_epoch=True, sync_dist=True)
 
         self.log("eval_cl_pred_min_predictor_loss_log", torch.log(prediction_loss), on_epoch=True, sync_dist=True)
 
-
-        del masked_indices_train, masked_indices_eval, masked_embeddings_train, masked_embeddings_eval
 
         last_prediction_loss = torch.log(prediction_loss)
 
@@ -277,7 +296,7 @@ class Predictor(nn.Module):
         # self.l2 = nn.Linear(feature_dim, feature_dim)
         # self.bn2 = nn.BatchNorm1d(feature_dim)
         # self.r2 = nn.LeakyReLU()
-        self.l3 = nn.Linear(feature_dim, feature_dim)
+        self.l3 = nn.Linear(feature_dim*2, feature_dim)
 
 
     def forward(self, x):
@@ -285,4 +304,107 @@ class Predictor(nn.Module):
         # w2 = self.bn2(self.r2(self.l2(w1)))
         return self.l3(x)
 
+
+
+def validate_predictor(predictability_net, args, input, true_output, masked_indices):
+    # predictability_net.eval()
+    val_outputs = predictability_net(input.cuda(non_blocking=True))
+    prediction_loss = average_predictor_mse_loss(val_outputs.cuda(non_blocking=True), true_output.cuda(non_blocking=True), masked_indices.cuda(non_blocking=True)).mean()
+    # del val_outputs
+    return prediction_loss
+
+
+
+class WidePredictor(nn.Module):
+    def __init__(self, feature_dim):
+        super().__init__()
+        self.l1 = nn.Linear(feature_dim*2, feature_dim*2*10)
+        self.bn1 = nn.BatchNorm1d(feature_dim*2*10)
+        self.r1 = nn.ReLU()
+        self.l2 = nn.Linear(feature_dim*2*10, feature_dim)
+
+    def forward(self, x):
+        w1 = self.bn1(self.r1(self.l1(x)))
+        return self.l2(w1)
+
+
+def to_dataset(embeddings, masking_target):
+    batch_size, embedding_dimension = embeddings.shape
+    ret_arr = torch.zeros(batch_size, 2*embedding_dimension,device=embeddings.device)
+    masked_indices = torch.rand(batch_size, embedding_dimension,device=embeddings.device) < (masking_target / embedding_dimension)
+
+    # copy over first half of input
+    ret_arr[:, :embedding_dimension] = embeddings
+    # mask the inputs we are predicting
+    ret_arr[:, :embedding_dimension].masked_fill_(masked_indices, 0)
+    # tell the neural network which ones we are predicting
+    ret_arr[:, embedding_dimension:].masked_fill_(masked_indices, 1)
+
+    return masked_indices, ret_arr
+
+
+def individual_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor):
+    assert predictions.shape == labels.shape
+
+    diff_square = torch.square(predictions - labels)
+    reconstruction = index_mask * diff_square
+
+    # case that we divide by zero extremely unlikely
+    prediction_error = reconstruction.sum(dim=0) / reconstruction.count_nonzero(dim=0)
+
+    return prediction_error
+
+
+def average_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor):
+    assert predictions.shape == labels.shape
+
+    diff_square = torch.square(predictions - labels)
+
+    only_prediction = torch.masked_select(diff_square, index_mask)
+    prediction_error = torch.mean(only_prediction)
+
+    return prediction_error
+
+
+def predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor, gamma: float,
+                       theta: float):
+    """
+    :param logger: if we pass a logger we will log the losses
+    :param predictions: the LOO predictions of our network
+    :param labels: the original embedding
+    :param index_mask: the indices we are masking
+    :param gamma: weight weighting error of masked error in sum with non-masked reconstruction error
+    :return: the loss as a tensor
+    """
+    # print(f' predictions.shape {predictions.shape}, labels.shape {labels.shape}')
+    assert predictions.shape == labels.shape
+    # print(f'{index_mask}')
+    # number_of_batches = predictions.shape[0]
+    # number_of_elements_in_batch = predictions.shape[1]
+
+    # get the squared difference of our neural networks output and the original labels
+    diff_square = torch.square(predictions - labels)
+    # print(diff_square.mean())
+    # now we must calculate the two parts - the reconstruction error and the prediction error
+    only_reconstruction = torch.masked_select(diff_square, torch.logical_not(index_mask))
+
+    # recall that mask returns a one dimensional flattened tensor
+    reconstruction_error = torch.mean(only_reconstruction)
+
+    only_prediction = torch.masked_select(diff_square,index_mask)
+    prediction_error = torch.mean(only_prediction)
+
+    # in the unlikely case that all were selected or non were selected
+    # TODO assumes we are running on a nvidia card
+    if prediction_error.isnan():
+        prediction_error = torch.tensor(0).cuda()
+
+    if reconstruction_error.isnan():
+        reconstruction_error = torch.tensor(0).cuda()
+
+    total_loss = theta*prediction_error + gamma*reconstruction_error
+
+    del prediction_error, reconstruction_error, only_prediction, only_reconstruction
+
+    return total_loss
 
