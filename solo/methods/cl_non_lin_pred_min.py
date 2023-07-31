@@ -76,7 +76,7 @@ class CLNonLinPredMin(BaseMethod):
 
         # predictor
         self.predictor = Predictor(self.proj_output_dim)
-        self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters(), weight_decay=1e-4)
+        self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters(), weight_decay=1e-3)
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
