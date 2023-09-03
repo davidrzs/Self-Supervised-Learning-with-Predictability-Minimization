@@ -36,7 +36,7 @@ def main():
     # build paths
     ckpt_dir = Path(args.pretrained_checkpoint_dir)
     args_path = ckpt_dir / "args.json"
-    ckpt_path = [ckpt_dir / ckpt for ckpt in os.listdir(ckpt_dir) if ckpt.endswith(".ckpt")][0]
+    ckpt_path = Path(args.pretrained_checkpoint)
 
     # load arguments
     with open(args_path) as f:
@@ -64,11 +64,16 @@ def main():
     # move model to the gpu
     device = "cuda:0"
     model = model.to(device)
+    
+    print(cfg)
+    name = cfg['name']
+    wandb_run_id = cfg['wandb_run_id']
+    print("CFG: ", name, wandb_run_id)
 
     calculate_correlation(device, model, train_loader,
-                          f'./correlation_analysis/{args.dataset}_{args.pretrained_checkpoint_dir.replace("/", "-")}_train')
+                          f'./correlation_analysis/{name}_{wandb_run_id}_train')
     calculate_correlation(device, model, val_loader,
-                          f'./correlation_analysis/{args.dataset}_{args.pretrained_checkpoint_dir.replace("/", "-")}_val')
+                          f'./correlation_analysis/{name}_{wandb_run_id}_val')
 
 
 if __name__ == "__main__":

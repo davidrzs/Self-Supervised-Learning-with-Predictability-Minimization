@@ -14,6 +14,7 @@ def parse_args_corr() -> argparse.Namespace:
 
     # add knn args
     parser.add_argument("--pretrained_checkpoint_dir", type=str)
+    parser.add_argument("--pretrained_checkpoint", type=str)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--num_workers", type=int, default=10)
 

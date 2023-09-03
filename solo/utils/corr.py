@@ -34,7 +34,7 @@ def calculate_correlation(
     Y = []
 
     path = pathlib.Path(path)
-    path.mkdir(exist_ok=True)
+    path.mkdir(exist_ok=True,parents=True)
 
 
     # set module to eval model and collect all feature representations
