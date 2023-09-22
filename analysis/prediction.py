@@ -42,7 +42,8 @@ if __name__ == '__main__':
     if args.model == 'linear':
         clf = SGDRegressor()
     elif args.model == 'svm':
-        clf = SVR()
+        clf = xgb.XGBRegressor(tree_method='gpu_hist', gpu_id=0)
+
     
     scores = []
     
