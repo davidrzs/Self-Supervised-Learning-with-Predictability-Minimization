@@ -20,6 +20,7 @@
 from solo.methods.barlow_twins import BarlowTwins
 from solo.methods.cl_lin_pred_min import CLLinPredMin
 from solo.methods.cl_non_lin_pred_min import CLNonLinPredMin
+from solo.methods.barlow_cl_lin_pred_min import BarlowCLLinPredMin
 from solo.methods.base import BaseMethod
 from solo.methods.byol import BYOL
 from solo.methods.deepclusterv2 import DeepClusterV2
@@ -47,6 +48,7 @@ METHODS = {
     # methods
     "cl_lin_pred_min": CLLinPredMin,
     "cl_non_lin_pred_min": CLNonLinPredMin,
+    "barlow_cl_lin_pred_min": BarlowCLLinPredMin,  
     "barlow_twins": BarlowTwins,
     "byol": BYOL,
     "deepclusterv2": DeepClusterV2,
@@ -68,6 +70,9 @@ METHODS = {
 }
 __all__ = [
     "BarlowTwins",
+    "BarlowCLLinPredMin",
+    "CLLinPredMin",
+    "CLNonLinPredMin",
     "BYOL",
     "BaseMethod",
     "DeepClusterV2",
