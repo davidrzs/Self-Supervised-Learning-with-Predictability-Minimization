@@ -9,12 +9,11 @@ hydra:
   output_subdir: null
   run:
     dir: .
-
-name: "barlow_twins-imagenet100-linear"
-pretrained_feature_extractor: "/itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/barlow_twins/439p1boi/barlow_twins-imagenet100-439p1boi-ep=399.ckpt"
+name: "cl_lin_pred_min-imagenet100-linear"
+pretrained_feature_extractor: "/itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_lin_pred_min/pbd1o1vk/cl_lin_pred_min-imagenet100-pbd1o1vk-ep=399.ckpt"
 backbone:
   name: "resnet18"
-pretrain_method: "barlow_twins"
+pretrain_method: "cl_lin_pred_min"
 data:
   dataset: imagenet100
   train_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_train_100"
@@ -42,4 +41,4 @@ devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 16
+precision: 16-mixed

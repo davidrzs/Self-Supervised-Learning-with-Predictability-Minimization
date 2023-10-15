@@ -1,5 +1,6 @@
 defaults:
   - _self_
+  - augmentations: asymmetric.yaml
   - wandb: private.yaml
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
@@ -10,36 +11,46 @@ hydra:
   run:
     dir: .
 
-name: "barlow_twins-imagenet100-linear"
-pretrained_feature_extractor: "/itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/barlow_twins/439p1boi/barlow_twins-imagenet100-439p1boi-ep=399.ckpt"
+name: "barlow_cl_lin_pred_min-imagenet100"
+method: "barlow_cl_lin_pred_min"
 backbone:
   name: "resnet18"
-pretrain_method: "barlow_twins"
+method_kwargs:
+  proj_hidden_dim: 2048
+  proj_output_dim: 128
+  mask_fraction: 0.5
+  lamb: 0.2
+  ridge_lambd: 0
+  mu: 0.0001
+  proj_size: 3
 data:
   dataset: imagenet100
   train_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_train_100"
   val_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_val_100"
-  format: "image_folder"
+  format: "dali"
   num_workers: 4
 optimizer:
-  name: "sgd"
+  name: "lars"
   batch_size: 256
-  lr: 0.1
-  weight_decay: 0
+  lr: 0.3
+  classifier_lr: 0.1
+  weight_decay: 1e-4
+  kwargs:
+    clip_lr: True
+    eta: 0.02
+    exclude_bias_n_norm: True
 scheduler:
-  name: "step"
-  lr_decay_steps: [60, 80]
+  name: "warmup_cosine"
 checkpoint:
   enabled: True
   dir: "trained_models"
   frequency: 1
 auto_resume:
-  enabled: True
-
+  enabled: False
 # overwrite PL stuff
-max_epochs: 100
+max_epochs: 1000
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 16
+precision: 16-mixed
