@@ -10,14 +10,14 @@ hydra:
   run:
     dir: .
 name: "cl_lin_pred_min-imagenet100-linear"
-pretrained_feature_extractor: "/itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_lin_pred_min/pbd1o1vk/cl_lin_pred_min-imagenet100-pbd1o1vk-ep=399.ckpt"
+pretrained_feature_extractor: "/itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_lin_pred_min/pbd1o1vk/cl_lin_pred_min-imagenet100-pbd1o1vk-ep=399.ckpt"
 backbone:
   name: "resnet18"
 pretrain_method: "cl_lin_pred_min"
 data:
   dataset: imagenet100
-  train_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_train_100"
-  val_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_val_100"
+  train_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_train_100"
+  val_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_val_100"
   format: "image_folder"
   num_workers: 4
 optimizer:
