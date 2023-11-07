@@ -11,14 +11,14 @@ hydra:
     dir: .
 
 name: "mocov3-imagenet100-linear"
-pretrained_feature_extractor: "/itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/mocov3/62kaptx2/mocov3-imagenet100-62kaptx2-ep=399.ckpt"
+pretrained_feature_extractor: "/itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/mocov3/62kaptx2/mocov3-imagenet100-62kaptx2-ep=399.ckpt"
 backbone:
   name: "resnet18"
 pretrain_method: "mocov3"
 data:
   dataset: imagenet100
-  train_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_train_100"
-  val_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_val_100"
+  train_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_train_100"
+  val_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_val_100"
   format: "dali"
   num_workers: 4
 optimizer:
