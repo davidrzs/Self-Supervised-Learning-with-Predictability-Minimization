@@ -11,7 +11,7 @@ hydra:
   run:
     dir: .
 
-name: "cl_non_lin_pred_min-cifar10" # change here for cifar100
+name: "cl_non_lin_pred_min-cifar10v2" # change here for cifar100
 method: "cl_non_lin_pred_minv2"
 backbone:
   name: "resnet18"
