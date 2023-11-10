@@ -81,7 +81,7 @@ class CLNonLinPredMinv2(BaseMethod):
             omegaconf.DictConfig: same as the argument, used to avoid errors.
         """
 
-        cfg = super(CLNonLinPredMin, CLNonLinPredMin).add_and_assert_specific_cfg(cfg)
+        cfg = super(CLNonLinPredMinv2, CLNonLinPredMinv2).add_and_assert_specific_cfg(cfg)
 
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_hidden_dim")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_output_dim")
@@ -150,7 +150,12 @@ class CLNonLinPredMinv2(BaseMethod):
         embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
 
         if self.proj_train_data is None:
-            self.proj_train_data = embeddings_eval
+            number_to_mask = int(self.proj_output_dim * self.mask_fraction)      
+            
+            detached_embeddings_eval = embeddings_eval.clone().detach()
+            mask_eval, eval_input = to_dataset(detached_embeddings_eval, number_to_mask)
+            self.proj_train_embed = detached_embeddings_eval
+            self.proj_train_data = mask_eval, eval_input
 
             self.predictor.eval() 
             predictions = self.predictor(eval_input)
@@ -158,13 +163,14 @@ class CLNonLinPredMinv2(BaseMethod):
 
         else:
             number_to_mask = int(self.proj_output_dim * self.mask_fraction)      
-        
-            mask_eval, eval_input = to_dataset(embeddings_eval, number_to_mask)
+
+            detached_embeddings_eval = embeddings_eval.clone().detach()
+            mask_eval, eval_input = to_dataset(detached_embeddings_eval, number_to_mask)
             mask_train, train_input = self.proj_train_data
             embeddings_train = self.proj_train_embed
 
-            self.proj_train_data = mask_eval, eval_input
-            self.proj_train_embed = embeddings_eval
+            self.proj_train_data = mask_eval.clone().detach(), eval_input.clone().detach()
+            self.proj_train_embed = embeddings_eval.clone().detach()
                                                                                 
             # get a first guess at how good the predictor is
             self.predictor.eval() 
@@ -257,10 +263,10 @@ class Predictor(nn.Module):
         # self.l1 = nn.Linear(feature_dim, feature_dim)
         # self.bn1 = nn.BatchNorm1d(feature_dim)
         # self.r1 = nn.LeakyReLU()
-        self.l2 = nn.Linear(feature_dim, feature_dim)
+        self.l2 = nn.Linear(feature_dim*2, feature_dim)
         self.bn2 = nn.BatchNorm1d(feature_dim)
         self.r2 = nn.LeakyReLU()
-        self.l3 = nn.Linear(feature_dim*2, feature_dim)
+        self.l3 = nn.Linear(feature_dim, feature_dim)
 
 
     def forward(self, x):
