@@ -148,12 +148,14 @@ class CLNonLinPredMinv2(BaseMethod):
         # out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
         # out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
         embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
-
         if self.proj_train_data is None:
+            first_forward = True
             number_to_mask = int(self.proj_output_dim * self.mask_fraction)      
             
-            detached_embeddings_eval = embeddings_eval.clone().detach()
+            #TODO: Just detach should be enough
+            detached_embeddings_eval = embeddings_eval.detach()
             mask_eval, eval_input = to_dataset(detached_embeddings_eval, number_to_mask)
+            #TODO: Possibly mask during trainining
             self.proj_train_embed = detached_embeddings_eval
             self.proj_train_data = mask_eval, eval_input
 
@@ -161,16 +163,17 @@ class CLNonLinPredMinv2(BaseMethod):
             predictions = self.predictor(eval_input)
             eval_loss = average_predictor_mse_loss(predictions, embeddings_eval, mask_eval)
 
+
         else:
+            first_forward = False
             number_to_mask = int(self.proj_output_dim * self.mask_fraction)      
 
-            detached_embeddings_eval = embeddings_eval.clone().detach()
-            mask_eval, eval_input = to_dataset(detached_embeddings_eval, number_to_mask)
+            mask_eval, eval_input = to_dataset(embeddings_eval, number_to_mask)
             mask_train, train_input = self.proj_train_data
             embeddings_train = self.proj_train_embed
 
-            self.proj_train_data = mask_eval.clone().detach(), eval_input.clone().detach()
-            self.proj_train_embed = embeddings_eval.clone().detach()
+            self.proj_train_data = mask_eval.detach(), eval_input.detach()
+            self.proj_train_embed = embeddings_eval.detach()
                                                                                 
             # get a first guess at how good the predictor is
             self.predictor.eval() 
@@ -222,9 +225,9 @@ class CLNonLinPredMinv2(BaseMethod):
         # TODO: Why multiply by output dim?
         # loss = on_diag - self.lamb * (self.proj_output_dim * last_prediction_loss)
         loss = on_diag - self.lamb * (last_prediction_loss)
-
-        self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
-        self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
+        if not first_forward:
+            self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True, )
+            self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
 
         return loss + class_loss
 
@@ -256,23 +259,23 @@ def individual_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tenso
 
     return prediction_error
 
-
+#TODO: Make param dependent
 class Predictor(nn.Module):
     def __init__(self, feature_dim):
         super().__init__()
         # self.l1 = nn.Linear(feature_dim, feature_dim)
         # self.bn1 = nn.BatchNorm1d(feature_dim)
         # self.r1 = nn.LeakyReLU()
-        self.l2 = nn.Linear(feature_dim*2, feature_dim)
-        self.bn2 = nn.BatchNorm1d(feature_dim)
-        self.r2 = nn.LeakyReLU()
-        self.l3 = nn.Linear(feature_dim, feature_dim)
+        # self.l2 = nn.Linear(feature_dim*2, feature_dim)
+        # self.bn2 = nn.BatchNorm1d(feature_dim)
+        # self.r2 = nn.LeakyReLU()
+        self.l3 = nn.Linear(feature_dim*2, feature_dim)
 
 
     def forward(self, x):
         # w1 = self.bn1(self.r1(self.l1(x)))
-        w2 = self.bn2(self.r2(self.l2(x)))
-        return self.l3(w2)
+        # w2 = self.bn2(self.r2(self.l2(x)))
+        return self.l3(x)
 
 
 
