@@ -77,7 +77,7 @@ class CLNonLinPredMinv3(BaseMethod):
         # predictor
         # TODO: Add kwargs to predictor and oprimizer, Maybe improve opt
         if cfg.method_kwargs.pred_type == "mlp":
-            self.predictor = MLPPredictor(feature_dim = self.proj_output_dim, **cfg.pred_kwargs)
+            self.predictor = MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)
         else:
             raise ValueError(f"Predictor {cfg.method_kwargs.pred_type} not implemented")
 
@@ -91,15 +91,15 @@ class CLNonLinPredMinv3(BaseMethod):
         Returns:
             omegaconf.DictConfig: same as the argument, used to avoid errors.
         """
-
+        #TODO: Add warnings for missing parameters
         cfg = super(CLNonLinPredMinv3, CLNonLinPredMinv3).add_and_assert_specific_cfg(cfg)
         cfg.method_kwargs.lamb = omegaconf_select(cfg, "method_kwargs.lamb", 0.0051)
-        cfg.method_kwargs.pred_type = omegaconf_select(cfg, "pred_type", "mlp")
-        cfg.method_kwargs.pred_kwargs = omegaconf_select(cfg, "pred_kwargs", {})
-        cfg.method_kwargs.norm_type = omegaconf_select(cfg, "norm_type", "standardize")
+        cfg.method_kwargs.pred_type = omegaconf_select(cfg, "method_kwargs.pred_type", "mlp")
+        cfg.method_kwargs.pred_kwargs = omegaconf_select(cfg, "method_kwargs.pred_kwargs", {})
+        cfg.method_kwargs.norm_type = omegaconf_select(cfg, "method_kwargs.norm_type", "standardize")
         cfg.method_kwargs.pred_loss_transform = omegaconf_select(cfg, "method_kwargs.pred_loss_transform", "identity")
         cfg.method_kwargs.pred_lamb = omegaconf_select(cfg, "method_kwargs.pred_lamb", 0.001)
-        
+
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.mask_fraction")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_hidden_dim")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_output_dim")

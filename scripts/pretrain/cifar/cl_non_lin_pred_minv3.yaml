@@ -24,7 +24,7 @@ method_kwargs:
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
   pred_loss_transform: "log" #[log, sqrt, identity]
-  predictor_kwargs:
+  pred_kwargs:
     layers: 3
     hidden_dim: 2048
     activation: "relu" # [relu, tanh]
