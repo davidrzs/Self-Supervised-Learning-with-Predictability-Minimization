@@ -43,12 +43,14 @@ class CLNonLinPredMinv3(BaseMethod):
                 pred_type (str): Type of predictor, currently supported: "mlp"
                 norm_type (str): Type of normalization, currently supported: "l2", "standardize", "both"
                 pred_loss_transform (str): Type of transform for the predictor loss, currently supported: "log", "sqrt", "identity"
+                pred_lamb (float): Scaling factor for the predictor loss
                 predictor_kwargs (dict): kwargs for predictor
 """
 
         super().__init__(cfg)
 
         self.lamb: float = cfg.method_kwargs.lamb
+        self.pred_lamb: float = cfg.method_kwargs.pred_lamb
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
 
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
@@ -74,10 +76,10 @@ class CLNonLinPredMinv3(BaseMethod):
 
         # predictor
         # TODO: Add kwargs to predictor and oprimizer, Maybe improve opt
-        if cfg.pred_type == "mlp":
-            self.predictor = MLPPredictor(in_dim = self.proj_output_dim, **cfg.pred_kwargs)
+        if cfg.method_kwargs.pred_type == "mlp":
+            self.predictor = MLPPredictor(feature_dim = self.proj_output_dim, **cfg.pred_kwargs)
         else:
-            raise ValueError(f"Predictor {cfg.pred_type} not implemented")
+            raise ValueError(f"Predictor {cfg.method_kwargs.pred_type} not implemented")
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
@@ -94,9 +96,10 @@ class CLNonLinPredMinv3(BaseMethod):
         cfg.method_kwargs.lamb = omegaconf_select(cfg, "method_kwargs.lamb", 0.0051)
         cfg.method_kwargs.pred_type = omegaconf_select(cfg, "pred_type", "mlp")
         cfg.method_kwargs.pred_kwargs = omegaconf_select(cfg, "pred_kwargs", {})
-        cfg.method_kwargs.norm_type = omegaconf_select(cfg, "norm_type", "l2")
+        cfg.method_kwargs.norm_type = omegaconf_select(cfg, "norm_type", "standardize")
         cfg.method_kwargs.pred_loss_transform = omegaconf_select(cfg, "method_kwargs.pred_loss_transform", "identity")
-
+        cfg.method_kwargs.pred_lamb = omegaconf_select(cfg, "method_kwargs.pred_lamb", 0.001)
+        
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.mask_fraction")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_hidden_dim")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_output_dim")
@@ -158,8 +161,9 @@ class CLNonLinPredMinv3(BaseMethod):
             z1_norm = F.normalize(z1, dim=-1)
             z2_norm = F.normalize(z2, dim=-1)
         elif self.norm_type == "standardize":
-            z1_norm = (z1 - z1.mean(dim=0)) / z1.std(dim=0)
-            z2_norm = (z2 - z2.mean(dim=0)) / z2.std(dim=0)
+            norm_layer = nn.BatchNorm1d(self.proj_output_dim, affine=False)
+            z1_norm = norm_layer(z1)
+            z2_norm = norm_layer(z2)
         elif self.norm_type == "both":
             z1_norm_ = F.normalize(z1, dim=-1)
             z2_norm_ = F.normalize(z2, dim=-1)
@@ -167,14 +171,19 @@ class CLNonLinPredMinv3(BaseMethod):
             z2_norm = (z2_norm_ - z2_norm_.mean(dim=0)) / z2_norm_.std(dim=0)
         else:
             raise ValueError(f"Norm type {self.norm_type} not implemented")
+        N, D = z1.shape
+        corr = torch.einsum("bi, bj -> ij", z1, z2) / N
+        on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
 
         embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
-        embeddings_train = self.pred_train_embed
-
+        N, D = z1_norm.shape
+        corr = torch.einsum("bi, bj -> ij", z1_norm, z2_norm) / N
+        on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
 
         mask_eval, eval_input =   to_dataset(embeddings_eval, self.mask_fraction)
         prediction_eval = self.predictor(eval_input)
-        predictability_loss_raw = average_predictor_mse_loss(prediction_eval, embeddings_train, mask_eval).mean()
+        predictability_loss_raw = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+        predictability_loss = predictability_loss_raw * self.proj_output_dim
 
         if self.pred_loss_transform == "log":   
             predictability_loss = torch.log(predictability_loss_raw)
@@ -185,6 +194,7 @@ class CLNonLinPredMinv3(BaseMethod):
         else:
             raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
         
+        embeddings_train = self.pred_train_embed
         if embeddings_train is not None:
             mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
             prediction_train = self.predictor(train_input)
@@ -196,14 +206,8 @@ class CLNonLinPredMinv3(BaseMethod):
         self.pred_train_embed = embeddings_eval.detach()
         
 
-        # cross-correlation matrix
-        #TODO: Maybe only calculate diagonal?
-        c = (z1_norm.T @ z2_norm) / self.batch_size
-
-        on_diag = torch.diagonal(c).add(-1).pow(2).sum()
-
         
-        loss = on_diag - self.lamb * predictability_loss + predictor_loss
+        loss = on_diag - self.lamb * predictability_loss + self.pred_lamb * predictor_loss
 
         self.log("train_cl_pred_last_prediction_loss", predictor_loss, on_epoch=True, sync_dist=True)
         self.log("eval_cl_pred_min_predictor_loss", predictability_loss, on_epoch=True, sync_dist=True)
@@ -211,6 +215,7 @@ class CLNonLinPredMinv3(BaseMethod):
         self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
         #This is just here for backwards compatibility
         self.log("eval_cl_pred_min_predictor_loss_log", torch.log(predictability_loss_raw), on_epoch=True, sync_dist=True)
+        self.log("eval_cl_pred_min_predictor_loss_mse   ", predictability_loss_raw, on_epoch=True, sync_dist=True)
         
         return loss + out["loss"]
 
@@ -245,27 +250,26 @@ def average_predictor_mse_loss(
 class MLPPredictor(nn.Module):
     def __init__(self, feature_dim , hidden_dim=512, layers=3, activation="relu"):
         super().__init__()
-        pred_layers = nn.ModuleList()
+        self.pred_layers = nn.ModuleList()
         cur_in_dim = feature_dim*2
         for _ in range(layers - 1):
-            pred_layers.append(nn.Linear(cur_in_dim, hidden_dim))
-            pred_layers.append(nn.BatchNorm1d(hidden_dim))
+            self.pred_layers.append(nn.Linear(cur_in_dim, hidden_dim))
+            self.pred_layers.append(nn.BatchNorm1d(hidden_dim))
             if activation == "relu":
-                pred_layers.append(nn.ReLU())
+                self.pred_layers.append(nn.ReLU())
             elif activation == "tanh":
-                pred_layers.append(nn.Tanh())
+                self.pred_layers.append(nn.Tanh())
             else:
                 raise ValueError(f"Activation {activation} not implemented")
 
             cur_in_dim = hidden_dim
 
-        pred_layers.append(nn.Linear(cur_in_dim, feature_dim))
-
-        self.predictor = nn.Sequential(*pred_layers)
-
+        self.pred_layers.append(nn.Linear(cur_in_dim, feature_dim))
 
     def forward(self, x):
-        return self.predictor(x)
+        for layer in self.pred_layers:
+            x = layer(x)
+        return x
 
 
 
