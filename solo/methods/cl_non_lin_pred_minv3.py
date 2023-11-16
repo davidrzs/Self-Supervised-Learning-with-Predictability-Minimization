@@ -161,7 +161,7 @@ class CLNonLinPredMinv3(BaseMethod):
             z1_norm = F.normalize(z1, dim=-1)
             z2_norm = F.normalize(z2, dim=-1)
         elif self.norm_type == "standardize":
-            norm_layer = nn.BatchNorm1d(self.proj_output_dim, affine=False)
+            norm_layer = nn.BatchNorm1d(self.proj_output_dim, affine=False, device=z1.device)
             z1_norm = norm_layer(z1)
             z2_norm = norm_layer(z2)
         elif self.norm_type == "both":
@@ -200,6 +200,14 @@ class CLNonLinPredMinv3(BaseMethod):
             prediction_train = self.predictor(train_input)
             predictor_loss = average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
             predictor_loss = predictor_loss * self.proj_output_dim
+            if self.pred_loss_transform == "log":   
+                predictor_loss = torch.log(predictor_loss)
+            elif self.pred_loss_transform == "sqrt":
+                predictor_loss = torch.sqrt(predictor_loss)
+            elif self.pred_loss_transform == "identity":
+                predictor_loss = predictor_loss
+            else:
+                raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
         else:
             predictor_loss = torch.tensor(0, device=predictability_loss.device)
 
@@ -207,15 +215,19 @@ class CLNonLinPredMinv3(BaseMethod):
         
 
         
-        loss = on_diag - self.lamb * predictability_loss + self.pred_lamb * predictor_loss
+        loss_encoder = on_diag - self.lamb * predictability_loss
+        loss_predictor = self.pred_lamb * predictor_loss
+        loss = loss_encoder + loss_predictor
 
-        self.log("train_cl_pred_last_prediction_loss", predictor_loss, on_epoch=True, sync_dist=True)
-        self.log("eval_cl_pred_min_predictor_loss", predictability_loss, on_epoch=True, sync_dist=True)
-        self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True, )
+        self.log("cl_scaled_predictor_loss", loss_predictor, on_epoch=True, sync_dist=True)
+        self.log("cl_scaled_predictability_loss", predictability_loss, on_epoch=True, sync_dist=True)
+        self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
+        self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, sync_dist=True)
+        self.log("cl_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
-        #This is just here for backwards compatibility
-        self.log("eval_cl_pred_min_predictor_loss_log", torch.log(predictability_loss_raw), on_epoch=True, sync_dist=True)
-        self.log("eval_cl_pred_min_predictor_loss_mse   ", predictability_loss_raw, on_epoch=True, sync_dist=True)
+        # #This is just here for backwards compatibility
+        # self.log("eval_cl_pred_min_predictor_loss_log", torch.log(predictability_loss_raw), on_epoch=True, sync_dist=True)
+        # self.log("eval_cl_pred_min_predictor_loss_mse   ", predictability_loss_raw, on_epoch=True, sync_dist=True)
         
         return loss + out["loss"]
 
