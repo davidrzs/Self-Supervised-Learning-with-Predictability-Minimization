@@ -24,6 +24,7 @@ import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.profiler import SimpleProfiler
 from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
@@ -226,6 +227,7 @@ def main(cfg: DictConfig):
             "strategy": DDPStrategy(find_unused_parameters=False)
             if cfg.strategy == "ddp"
             else cfg.strategy,
+            "profiler": SimpleProfiler(filename="profile.txt"),
         }
     )
     trainer = Trainer(**trainer_kwargs)
