@@ -3,6 +3,8 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=25GB
 #SBATCH --cpus-per-task=8
+#SBATCH --output=/home/maotth/log/%j.out     # where to store the output (%j is the JOBID), subdirectory "log" must exist
+#SBATCH --error=/home/maotth/log/%j.err  # where to store error messages
 ##SBATCH --constraint='geforce_rtx_3090|titan_rtx|rtx_a6000'
 
 
