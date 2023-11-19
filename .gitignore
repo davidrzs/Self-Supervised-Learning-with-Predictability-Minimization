@@ -183,3 +183,6 @@ dmypy.json
 
 # Profiling logs
 profiles/*
+
+# Exclude scripts for ease of use on cluster
+train.sh
