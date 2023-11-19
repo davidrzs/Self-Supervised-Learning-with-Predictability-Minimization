@@ -60,8 +60,9 @@ class CLNonLinPredMinv3(BaseMethod):
                 predictor_kwargs (dict): kwargs for predictor
 """
 
+        
         super().__init__(cfg)
-
+        self.automatic_optimization=False
         self.lamb: float = cfg.method_kwargs.lamb
         self.pred_lamb: float = cfg.method_kwargs.pred_lamb
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
@@ -135,8 +136,9 @@ class CLNonLinPredMinv3(BaseMethod):
 
         #TODO: possibly add custom params for predictor
         extra_learnable_params = [{"name": "projector", "params": self.projector.parameters()},
-                                  {"name": "predictor", "params": self.predictor.parameters()}]
-        return super().learnable_params + extra_learnable_params
+                                  {"name": "predictor", "params": self.predictor.parameters(), "lr": 1e-2, "weight_decay": 0}]
+        params = super().learnable_params + extra_learnable_params
+        return params
 
     def forward(self, X):
         """Performs the forward pass of the backbone and the projector.
@@ -225,9 +227,9 @@ class CLNonLinPredMinv3(BaseMethod):
         return [optimizer], [scheduler]
     
     def configure_optimizers(self) -> Tuple[List, List]:
-        learnable_params = self.learnable_params()
-        learnable_params_pred = [x for x in learnable_params if x["name"] == "predictor"][0]
-        learnable_params_remaining = [x for x in learnable_params if x["name"] != "predictor"][0]
+        learnable_params = self.learnable_params
+        learnable_params_pred = [x for x in learnable_params if x["name"] == "predictor"]
+        learnable_params_remaining = [x for x in learnable_params if x["name"] != "predictor"]
         opt_pred, sched_pred = self.configure_optimizers_base(learnable_params_pred)
         opt_rem, sched_rem = self.configure_optimizers_base(learnable_params_remaining)
         return opt_pred + opt_rem, sched_pred + sched_rem
@@ -243,10 +245,9 @@ class CLNonLinPredMinv3(BaseMethod):
         Returns:
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
-
+        opt_pred, opt_enc = self.optimizers()
         out = super().training_step(batch, batch_idx)
         z1, z2 = out["z"]
-
         #Normalize each feature vector
         if self.norm_type == "l2":
             z1_norm = F.normalize(z1, dim=-1)
@@ -305,11 +306,33 @@ class CLNonLinPredMinv3(BaseMethod):
         # self.pred_train_embed = embeddings_eval.detach()
         
 
-        
-        loss_encoder = on_diag - self.lamb * predictability_loss
-        loss_predictor = self.pred_lamb * predictability_loss
-        loss = loss_encoder + loss_predictor
+                
+        loss_encoder = on_diag - self.lamb * predictability_loss + out["loss"]
+        opt_enc.zero_grad()
+        self.manual_backward(loss_encoder)
+        opt_enc.step()
+        opt_enc.zero_grad()
+        embeddings_eval = embeddings_eval.detach()
+        mask_eval, eval_input =   to_dataset(embeddings_eval, self.mask_fraction)
+        prediction_eval = self.predictor(eval_input)
+        predictability_loss_raw = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+        predictability_loss = predictability_loss_raw * self.proj_output_dim
 
+        if self.pred_loss_transform == "log":   
+            predictability_loss = torch.log(predictability_loss_raw)
+        elif self.pred_loss_transform == "sqrt":
+            predictability_loss = torch.sqrt(predictability_loss_raw)
+        elif self.pred_loss_transform == "identity":
+            predictability_loss = predictability_loss_raw
+        else:
+            raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
+
+        loss_predictor = self.pred_lamb * predictability_loss
+        opt_pred.zero_grad()
+        self.manual_backward(loss_predictor)
+        opt_pred.step()
+        loss = loss_encoder + loss_predictor
+        opt_pred.zero_grad()
         self.log("cl_scaled_predictor_loss", loss_predictor, on_epoch=True, sync_dist=True)
         self.log("cl_scaled_predictability_loss", predictability_loss, on_epoch=True, sync_dist=True)
         # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
@@ -320,9 +343,11 @@ class CLNonLinPredMinv3(BaseMethod):
         # self.log("eval_cl_pred_min_predictor_loss_log", torch.log(predictability_loss_raw), on_epoch=True, sync_dist=True)
         # self.log("eval_cl_pred_min_predictor_loss_mse   ", predictability_loss_raw, on_epoch=True, sync_dist=True)
         
-        return loss + out["loss"]
-
-
+        # multiple schedulers
+        sch1, sch2 = self.lr_schedulers()
+        sch1.step()
+        sch2.step()        
+        return loss
 
 
 def average_predictor_mse_loss(
