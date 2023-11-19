@@ -25,9 +25,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 from solo.losses.barlow import barlow_loss_func
 from solo.methods.base import BaseMethod
-from solo.utils.misc import omegaconf_select
+from solo.utils.misc import omegaconf_select, remove_bias_and_norm_from_weight_decay
 import torch.distributed as dist
+from solo.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
+from torch.optim.lr_scheduler import MultiStepLR
+from functools import partial
+from typing import Any, Callable, Dict, List, Sequence, Tuple, Union
 
+def static_lr(
+    get_lr: Callable,
+    param_group_indexes: Sequence[int],
+    lrs_to_replace: Sequence[float],
+):
+    lrs = get_lr()
+    for idx, lr in zip(param_group_indexes, lrs_to_replace):
+        lrs[idx] = lr
+    return lrs
 
 class CLNonLinPredMinv3(BaseMethod):
     def __init__(self, cfg: omegaconf.DictConfig):
@@ -140,7 +153,84 @@ class CLNonLinPredMinv3(BaseMethod):
         out.update({"z": z})
         return out
 
+    def configure_optimizers_base(self, learnable_params) -> Tuple[List, List]:
+        """Collects learnable parameters and configures the optimizer and learning rate scheduler.
 
+        Returns:
+            Tuple[List, List]: two lists containing the optimizer and the scheduler.
+        """
+
+        # exclude bias and norm from weight decay
+        if self.exclude_bias_n_norm_wd:
+            learnable_params = remove_bias_and_norm_from_weight_decay(learnable_params)
+
+        # indexes of parameters without lr scheduler
+        idxs_no_scheduler = [i for i, m in enumerate(learnable_params) if m.pop("static_lr", False)]
+
+        assert self.optimizer in self._OPTIMIZERS
+        optimizer = self._OPTIMIZERS[self.optimizer]
+
+        # create optimizer
+        optimizer = optimizer(
+            learnable_params,
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            **self.extra_optimizer_args,
+        )
+
+        if self.scheduler.lower() == "none":
+            return optimizer
+
+        if self.scheduler == "warmup_cosine":
+            max_warmup_steps = (
+                self.warmup_epochs * (self.trainer.estimated_stepping_batches / self.max_epochs)
+                if self.scheduler_interval == "step"
+                else self.warmup_epochs
+            )
+            max_scheduler_steps = (
+                self.trainer.estimated_stepping_batches
+                if self.scheduler_interval == "step"
+                else self.max_epochs
+            )
+            scheduler = {
+                "scheduler": LinearWarmupCosineAnnealingLR(
+                    optimizer,
+                    warmup_epochs=max_warmup_steps,
+                    max_epochs=max_scheduler_steps,
+                    warmup_start_lr=self.warmup_start_lr if self.warmup_epochs > 0 else self.lr,
+                    eta_min=self.min_lr,
+                ),
+                "interval": self.scheduler_interval,
+                "frequency": 1,
+            }
+        elif self.scheduler == "step":
+            scheduler = MultiStepLR(optimizer, self.lr_decay_steps)
+        else:
+            raise ValueError(f"{self.scheduler} not in (warmup_cosine, cosine, step)")
+
+        if idxs_no_scheduler:
+            partial_fn = partial(
+                static_lr,
+                get_lr=scheduler["scheduler"].get_lr
+                if isinstance(scheduler, dict)
+                else scheduler.get_lr,
+                param_group_indexes=idxs_no_scheduler,
+                lrs_to_replace=[self.lr] * len(idxs_no_scheduler),
+            )
+            if isinstance(scheduler, dict):
+                scheduler["scheduler"].get_lr = partial_fn
+            else:
+                scheduler.get_lr = partial_fn
+
+        return [optimizer], [scheduler]
+    
+    def configure_optimizers(self) -> Tuple[List, List]:
+        learnable_params = self.learnable_params()
+        learnable_params_pred = [x for x in learnable_params if x["name"] == "predictor"][0]
+        learnable_params_remaining = [x for x in learnable_params if x["name"] != "predictor"][0]
+        opt_pred, sched_pred = self.configure_optimizers_base(learnable_params_pred)
+        opt_rem, sched_rem = self.configure_optimizers_base(learnable_params_remaining)
+        return opt_pred + opt_rem, sched_pred + sched_rem
 
     def training_step(self, batch: Sequence[Any], batch_idx: int) -> torch.Tensor:
         """Training step for Barlow Twins reusing BaseMethod training step.
@@ -195,34 +285,34 @@ class CLNonLinPredMinv3(BaseMethod):
         else:
             raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
         
-        embeddings_train = self.pred_train_embed
-        if embeddings_train is not None:
-            mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
-            prediction_train = self.predictor(train_input)
-            predictor_loss = average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
-            predictor_loss = predictor_loss * self.proj_output_dim
-            if self.pred_loss_transform == "log":   
-                predictor_loss = torch.log(predictor_loss)
-            elif self.pred_loss_transform == "sqrt":
-                predictor_loss = torch.sqrt(predictor_loss)
-            elif self.pred_loss_transform == "identity":
-                predictor_loss = predictor_loss
-            else:
-                raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
-        else:
-            predictor_loss = torch.tensor(0, device=predictability_loss.device)
+        # embeddings_train = self.pred_train_embed
+        # if embeddings_train is not None:
+        #     mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
+        #     prediction_train = self.predictor(train_input)
+        #     predictor_loss = average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
+        #     predictor_loss = predictor_loss * self.proj_output_dim
+        #     if self.pred_loss_transform == "log":   
+        #         predictor_loss = torch.log(predictor_loss)
+        #     elif self.pred_loss_transform == "sqrt":
+        #         predictor_loss = torch.sqrt(predictor_loss)
+        #     elif self.pred_loss_transform == "identity":
+        #         predictor_loss = predictor_loss
+        #     else:
+        #         raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
+        # else:
+        #     predictor_loss = torch.tensor(0, device=predictability_loss.device)
 
-        self.pred_train_embed = embeddings_eval.detach()
+        # self.pred_train_embed = embeddings_eval.detach()
         
 
         
         loss_encoder = on_diag - self.lamb * predictability_loss
-        loss_predictor = self.pred_lamb * predictor_loss
+        loss_predictor = self.pred_lamb * predictability_loss
         loss = loss_encoder + loss_predictor
 
         self.log("cl_scaled_predictor_loss", loss_predictor, on_epoch=True, sync_dist=True)
         self.log("cl_scaled_predictability_loss", predictability_loss, on_epoch=True, sync_dist=True)
-        self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
+        # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
         self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, sync_dist=True)
         self.log("cl_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
