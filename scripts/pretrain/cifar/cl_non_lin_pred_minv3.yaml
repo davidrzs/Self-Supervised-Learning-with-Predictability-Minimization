@@ -20,13 +20,13 @@ method_kwargs:
   proj_output_dim: 128
   mask_fraction: 0.5
   lamb: 0.1
-  pred_lamb: 0.01
+  pred_lamb: 0.1
   proj_size: 3
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
-  pred_loss_transform: "log" #[log, sqrt, identity]
+  pred_loss_transform: "identity" #[log, sqrt, identity]
   pred_kwargs:
-    layers: 3
+    layers: 1
     hidden_dim: 2048
     activation: "relu" # [relu, tanh]
 data:
