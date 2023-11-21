@@ -92,9 +92,8 @@ class CLNonLinPredMinv3(BaseMethod):
         self.pred_lr = cfg.method_kwargs.pred_lr
         self.max_pred_steps = cfg.method_kwargs.max_pred_steps
         if cfg.method_kwargs.pred_type == "mlp":
-            self.predictor = MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)
-            print("Predictor:", self.predictor)
-            print("Grad:", self.predictor.pred_layers[0].weight)
+            self.predictor_hidden = [MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)]
+            self.predictor = None
         else:
             raise ValueError(f"Predictor {cfg.method_kwargs.pred_type} not implemented")
         
@@ -233,7 +232,7 @@ class CLNonLinPredMinv3(BaseMethod):
     
     def configure_optimizers(self) -> Tuple[List, List]:
         self.opt_pred, self.sched_pred = self.configure_optimizers_base([
-                                  {"name": "predictor", "params": self.predictor.parameters(), "lr": self.pred_lr, "weight_decay": 1e-6}])     
+                                  {"name": "predictor", "params": self.predictor_hidden[0].parameters(), "lr": self.pred_lr, "weight_decay": 1e-6}])     
         return super().configure_optimizers()
 
 
@@ -248,7 +247,8 @@ class CLNonLinPredMinv3(BaseMethod):
         Returns:
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
-
+        if self.predictor is None:
+            self.predictor = self.predictor_hidden[0]
         #===== Encoder forward pass =====
         out = super().training_step(batch, batch_idx)
         z1, z2 = out["z"]
@@ -283,18 +283,14 @@ class CLNonLinPredMinv3(BaseMethod):
 
             first_eval = loss_eval_old.item()
             self.log("eval_old", first_eval)
+
         count = 0
         while self.embed_train is not None and count < self.max_pred_steps:
             count += 1
             self.predictor.train()
             opt_pred = self.opt_pred[0]
-            print("opt_pred:\n", opt_pred)
-            print("Grad:", self.predictor.pred_layers[0].weight)
-            #Reduce variance with multiple passes
-            # steps = 10
+
             embeddings_train = self.embed_train
-            # loss_predictor = 0
-            # for i in range(steps):
             mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
             prediction_train = self.predictor(train_input)
             predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
@@ -307,11 +303,10 @@ class CLNonLinPredMinv3(BaseMethod):
                 predictor_loss = predictor_loss_raw
             else:
                 raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
-            if torch.is_grad_enabled():
-                predictor_loss.backward()
-                opt_pred.step()
-            else:
-                print("No grad")
+            
+            opt_pred.zero_grad()
+            predictor_loss.backward()
+            opt_pred.step()
             # Zero again for the encoder
             opt_pred.zero_grad()
             #self.sched_pred[0].step()
@@ -336,7 +331,6 @@ class CLNonLinPredMinv3(BaseMethod):
         mask_eval, eval_input =   to_dataset(embeddings_eval, self.mask_fraction)
         prediction_eval = self.predictor(eval_input)
         predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
-        predictability_loss_raw = 0
         if self.pred_loss_transform == "log":   
             predictability_loss = torch.log(predictability_loss_raw)
         elif self.pred_loss_transform == "sqrt":
@@ -419,11 +413,11 @@ class MLPPredictor(nn.Module):
         self.pred_layers.append(nn.Linear(cur_in_dim, feature_dim))
 
     def forward(self, x):
-        print("Input:",x.requires_grad, x)
+        # print("Input:",x.requires_grad, x)
         for layer in self.pred_layers:
             x = layer(x)
-            print("layer:",layer.weight)
-            print("output:",x.requires_grad, x)
+            # print("layer:",layer.weight)
+            # print("output:",x.requires_grad, x)
             
         return x
 
