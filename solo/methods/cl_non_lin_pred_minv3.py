@@ -65,7 +65,7 @@ class CLNonLinPredMinv3(BaseMethod):
         self.lamb: float = cfg.method_kwargs.lamb
         self.pred_lamb: float = cfg.method_kwargs.pred_lamb
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
-
+        self.embed_train = None
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
 
@@ -94,8 +94,8 @@ class CLNonLinPredMinv3(BaseMethod):
         else:
             raise ValueError(f"Predictor {cfg.method_kwargs.pred_type} not implemented")
         
-        self.opt_pred, self.sched_pred = self.configure_optimizers_base(
-                                  {"name": "predictor", "params": self.predictor.parameters(), "lr": 1e-2, "weight_decay": 0})
+       # self.opt_pred, self.sched_pred = self.configure_optimizers_base([
+        #                          {"name": "predictor", "params": self.predictor.parameters(), "lr": 1e-2, "weight_decay": 0}])
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
@@ -227,12 +227,10 @@ class CLNonLinPredMinv3(BaseMethod):
 
         return [optimizer], [scheduler]
     
-    # def configure_optimizers(self) -> Tuple[List, List]:
-    #     learnable_params = self.learnable_params
-    #     learnable_params_pred = [x for x in learnable_params if x["name"] == "predictor"]
-    #     learnable_params_remaining = [x for x in learnable_params if x["name"] != "predictor"]
-        
-    #     opt_rem, sched_rem = self.configure_optimizers_base(learnable_params_remaining)
+    def configure_optimizers(self) -> Tuple[List, List]:
+        self.opt_pred, self.sched_pred = self.configure_optimizers_base([
+                                  {"name": "predictor", "params": self.predictor.parameters(), "lr": 1e-3, "weight_decay": 1e-6}])     
+        return super().configure_optimizers()
     #     return opt_pred + opt_rem, sched_pred + sched_rem
 
     def training_step(self, batch: Sequence[Any], batch_idx: int) -> torch.Tensor:
@@ -269,8 +267,21 @@ class CLNonLinPredMinv3(BaseMethod):
         embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
         
         #===== Predictor forward and backward pass =====
-        if self.embed_train:
-            opt_pred = self.opt_pred
+        predictor_loss = 0
+        predictor_loss_raw = 0
+        
+        
+        with torch.no_grad():
+            mask_eval, eval_input = to_dataset(embeddings_eval.detach(), self.mask_fraction)
+            self.predictor.eval()
+            prediction_eval = self.predictor(eval_input)
+            loss_eval_old = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+            self.log("eval_old", loss_eval_old.item())
+        count = 0
+        while self.embed_train is not None and count < 200:
+            count += 1
+            self.predictor.train()
+            opt_pred = self.opt_pred[0]
             opt_pred.zero_grad()
 
             #Reduce variance with multiple passes
@@ -278,9 +289,9 @@ class CLNonLinPredMinv3(BaseMethod):
             embeddings_train = self.embed_train
             # loss_predictor = 0
             # for i in range(steps):
-            mask_eval, eval_input = to_dataset(embeddings_train, self.mask_fraction)
-            prediction_eval = self.predictor(eval_input)
-            predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_train, mask_eval).mean()
+            mask_train, eval_train = to_dataset(embeddings_train, self.mask_fraction)
+            prediction_train = self.predictor(eval_train)
+            predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
 
             if self.pred_loss_transform == "log":   
                 predictor_loss = torch.log(predictor_loss_raw)
@@ -296,8 +307,19 @@ class CLNonLinPredMinv3(BaseMethod):
             opt_pred.step()
             # Zero again for the encoder
             opt_pred.zero_grad()
-            self.sched_pred.step()
+            #self.sched_pred[0].step()
 
+            with torch.no_grad():
+                self.predictor.eval()
+                prediction_eval_new = self.predictor(eval_input)
+                loss_eval_new = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+                if loss_eval_new > loss_eval_old:
+                    break
+#                    self.log("eval_new", loss_eval_new.item())
+                else:
+                    loss_eval_old = loss_eval_new 
+        if self.embed_train is not None:
+            self.log("eval_new", loss_eval_new.item())
         self.embed_train = embeddings_eval.detach()
 
         # ===== Encoder backward pass =====
@@ -333,7 +355,8 @@ class CLNonLinPredMinv3(BaseMethod):
         self.log("cl_scaled_predictability_loss", predictability_loss, on_epoch=True, sync_dist=True)
         self.log("cl_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, sync_dist=True)
-        # #This is just here for backwards compatibility
+        self.log("opt_pred_steps", count, sync_dist=True)
+# #This is just here for backwards compatibility
         # self.log("eval_cl_pred_min_predictor_loss_log", torch.log(predictability_loss_raw), on_epoch=True, sync_dist=True)
         # self.log("eval_cl_pred_min_predictor_loss_mse   ", predictability_loss_raw, on_epoch=True, sync_dist=True)
         
