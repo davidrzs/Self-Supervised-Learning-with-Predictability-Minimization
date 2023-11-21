@@ -25,7 +25,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.profilers import SimpleProfiler
-from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelSummary
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
 
@@ -219,15 +219,17 @@ def main(cfg: DictConfig):
     # we only want to pass in valid Trainer args, the rest may be user specific
     valid_kwargs = inspect.signature(Trainer.__init__).parameters
     trainer_kwargs = {name: trainer_kwargs[name] for name in valid_kwargs if name in trainer_kwargs}
+    #callbacks.append(ModelSummary(max_depth=1))
     trainer_kwargs.update(
         {
             "logger": wandb_logger if cfg.wandb.enabled else None,
             "callbacks": callbacks,
             "enable_checkpointing": False,
-            "strategy": DDPStrategy(find_unused_parameters=False)
+            "strategy": DDPStrategy(find_unused_parameters=True)
             if cfg.strategy == "ddp"
             else cfg.strategy,
             "profiler": SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile"),
+            "enable_model_summary": True,
         }
     )
     trainer = Trainer(**trainer_kwargs)
@@ -248,7 +250,7 @@ def main(cfg: DictConfig):
         )
     except:
         pass
-
+    print(model)
     if cfg.data.format == "dali":
         trainer.fit(model, ckpt_path=ckpt_path, datamodule=dali_datamodule)
     else:
