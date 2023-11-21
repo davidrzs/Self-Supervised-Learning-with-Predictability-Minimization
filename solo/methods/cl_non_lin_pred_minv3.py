@@ -92,8 +92,7 @@ class CLNonLinPredMinv3(BaseMethod):
         self.pred_lr = cfg.method_kwargs.pred_lr
         self.max_pred_steps = cfg.method_kwargs.max_pred_steps
         if cfg.method_kwargs.pred_type == "mlp":
-            self.predictor_hidden = [MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)]
-            self.predictor = None
+            self.predictor= MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)
         else:
             raise ValueError(f"Predictor {cfg.method_kwargs.pred_type} not implemented")
         
@@ -232,7 +231,7 @@ class CLNonLinPredMinv3(BaseMethod):
     
     def configure_optimizers(self) -> Tuple[List, List]:
         self.opt_pred, self.sched_pred = self.configure_optimizers_base([
-                                  {"name": "predictor", "params": self.predictor_hidden[0].parameters(), "lr": self.pred_lr, "weight_decay": 1e-6}])     
+                                  {"name": "predictor", "params": self.predictor.parameters(), "lr": self.pred_lr, "weight_decay": 1e-6}])     
         return super().configure_optimizers()
 
 
@@ -247,8 +246,6 @@ class CLNonLinPredMinv3(BaseMethod):
         Returns:
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
-        if self.predictor is None:
-            self.predictor = self.predictor_hidden[0]
         #===== Encoder forward pass =====
         out = super().training_step(batch, batch_idx)
         z1, z2 = out["z"]
@@ -311,24 +308,23 @@ class CLNonLinPredMinv3(BaseMethod):
             opt_pred.zero_grad()
             #self.sched_pred[0].step()
 
+            self.predictor.eval()
             with torch.no_grad():
-                self.predictor.eval()
                 prediction_eval_new = self.predictor(eval_input)
-                loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
-                if loss_eval_new > loss_eval_old:
-                    break
-#                    self.log("eval_new", loss_eval_new.item())
-                else:
-                    loss_eval_old = loss_eval_new 
+            loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
+            if loss_eval_new > loss_eval_old:
+                break
+            else:
+                loss_eval_old = loss_eval_new 
         if self.embed_train is not None:
             self.log("eval_new", loss_eval_new.item())
             self.log("eval_diff", first_eval - loss_eval_new.item())
-        self.embed_train = embeddings_eval.detach().requires_grad_()
+        self.embed_train = embeddings_eval.detach()
 
         # ===== Encoder backward pass =====
         # The gradients of the predictor could be reused.
         self.predictor.eval()
-        mask_eval, eval_input =   to_dataset(embeddings_eval, self.mask_fraction)
+        mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
         prediction_eval = self.predictor(eval_input)
         predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
         if self.pred_loss_transform == "log":   
