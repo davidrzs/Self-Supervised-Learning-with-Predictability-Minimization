@@ -225,11 +225,11 @@ def main(cfg: DictConfig):
             "logger": wandb_logger if cfg.wandb.enabled else None,
             "callbacks": callbacks,
             "enable_checkpointing": False,
-            "strategy": DDPStrategy(find_unused_parameters=True)
+            "strategy": DDPStrategy(find_unused_parameters=False)
             if cfg.strategy == "ddp"
             else cfg.strategy,
-            "profiler": SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile"),
-            "enable_model_summary": True,
+            # "profiler": SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile"),
+            # "enable_model_summary": True,
         }
     )
     trainer = Trainer(**trainer_kwargs)
