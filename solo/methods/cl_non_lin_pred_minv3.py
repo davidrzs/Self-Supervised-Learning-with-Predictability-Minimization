@@ -89,16 +89,16 @@ class CLNonLinPredMinv3(BaseMethod):
         # predictor
         # TODO: Maybe improve opt
         self.pred_train_embed = None
-        self.pred_lr = cfg.max_epochs.pred_lr
-        self.max_pred_steps = cfg.max_epochs.max_pred_steps
+        self.pred_lr = cfg.method_kwargs.pred_lr
+        self.max_pred_steps = cfg.method_kwargs.max_pred_steps
         if cfg.method_kwargs.pred_type == "mlp":
             self.predictor = MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)
+            print("Predictor:", self.predictor)
+            print("Grad:", self.predictor.pred_layers[0].weight)
         else:
             raise ValueError(f"Predictor {cfg.method_kwargs.pred_type} not implemented")
         
-       # self.opt_pred, self.sched_pred = self.configure_optimizers_base([
-        #                          {"name": "predictor", "params": self.predictor.parameters(), "lr": 1e-2, "weight_decay": 0}])
-
+       
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
         """Adds method specific default values/checks for config.
@@ -234,9 +234,8 @@ class CLNonLinPredMinv3(BaseMethod):
     def configure_optimizers(self) -> Tuple[List, List]:
         self.opt_pred, self.sched_pred = self.configure_optimizers_base([
                                   {"name": "predictor", "params": self.predictor.parameters(), "lr": self.pred_lr, "weight_decay": 1e-6}])     
-        extra_learnable_params = [{"name": "projector", "params": self.projector.parameters()}]
-        return super().learnable_params + extra_learnable_params
-    #     return opt_pred + opt_rem, sched_pred + sched_rem
+        return super().configure_optimizers()
+
 
     def training_step(self, batch: Sequence[Any], batch_idx: int) -> torch.Tensor:
         """Training step for Barlow Twins reusing BaseMethod training step.
@@ -277,10 +276,11 @@ class CLNonLinPredMinv3(BaseMethod):
         
         
         with torch.no_grad():
-            mask_eval, eval_input = to_dataset(embeddings_eval.detach(), self.mask_fraction)
+            mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
             self.predictor.eval()
             prediction_eval = self.predictor(eval_input)
             loss_eval_old = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+
             first_eval = loss_eval_old.item()
             self.log("eval_old", first_eval)
         count = 0
@@ -288,17 +288,17 @@ class CLNonLinPredMinv3(BaseMethod):
             count += 1
             self.predictor.train()
             opt_pred = self.opt_pred[0]
-            opt_pred.zero_grad()
-
+            print("opt_pred:\n", opt_pred)
+            print("Grad:", self.predictor.pred_layers[0].weight)
             #Reduce variance with multiple passes
             # steps = 10
             embeddings_train = self.embed_train
             # loss_predictor = 0
             # for i in range(steps):
-            mask_train, eval_train = to_dataset(embeddings_train, self.mask_fraction)
-            prediction_train = self.predictor(eval_train)
+            mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
+            prediction_train = self.predictor(train_input)
             predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
-
+  
             if self.pred_loss_transform == "log":   
                 predictor_loss = torch.log(predictor_loss_raw)
             elif self.pred_loss_transform == "sqrt":
@@ -307,10 +307,11 @@ class CLNonLinPredMinv3(BaseMethod):
                 predictor_loss = predictor_loss_raw
             else:
                 raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
-
-            opt_pred.zero_grad()
-            predictor_loss.backward()
-            opt_pred.step()
+            if torch.is_grad_enabled():
+                predictor_loss.backward()
+                opt_pred.step()
+            else:
+                print("No grad")
             # Zero again for the encoder
             opt_pred.zero_grad()
             #self.sched_pred[0].step()
@@ -318,7 +319,7 @@ class CLNonLinPredMinv3(BaseMethod):
             with torch.no_grad():
                 self.predictor.eval()
                 prediction_eval_new = self.predictor(eval_input)
-                loss_eval_new = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+                loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
                 if loss_eval_new > loss_eval_old:
                     break
 #                    self.log("eval_new", loss_eval_new.item())
@@ -327,14 +328,15 @@ class CLNonLinPredMinv3(BaseMethod):
         if self.embed_train is not None:
             self.log("eval_new", loss_eval_new.item())
             self.log("eval_diff", first_eval - loss_eval_new.item())
-        self.embed_train = embeddings_eval.detach()
+        self.embed_train = embeddings_eval.detach().requires_grad_()
 
         # ===== Encoder backward pass =====
         # The gradients of the predictor could be reused.
+        self.predictor.eval()
         mask_eval, eval_input =   to_dataset(embeddings_eval, self.mask_fraction)
         prediction_eval = self.predictor(eval_input)
         predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
-
+        predictability_loss_raw = 0
         if self.pred_loss_transform == "log":   
             predictability_loss = torch.log(predictability_loss_raw)
         elif self.pred_loss_transform == "sqrt":
@@ -417,8 +419,12 @@ class MLPPredictor(nn.Module):
         self.pred_layers.append(nn.Linear(cur_in_dim, feature_dim))
 
     def forward(self, x):
+        print("Input:",x.requires_grad, x)
         for layer in self.pred_layers:
             x = layer(x)
+            print("layer:",layer.weight)
+            print("output:",x.requires_grad, x)
+            
         return x
 
 
