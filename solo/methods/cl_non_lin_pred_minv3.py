@@ -72,7 +72,6 @@ class CLNonLinPredMinv3(BaseMethod):
         self.pred_loss_transform = cfg.method_kwargs.pred_loss_transform
         self.norm_type = cfg.method_kwargs.norm_type
         # projector
-        self.pred_train_embed = None
         proj_layers = nn.ModuleList()
         cur_in_dim = self.features_dim
 
@@ -88,7 +87,10 @@ class CLNonLinPredMinv3(BaseMethod):
         self.projector = nn.Sequential(*proj_layers)
 
         # predictor
-        # TODO: Add kwargs to predictor and oprimizer, Maybe improve opt
+        # TODO: Maybe improve opt
+        self.pred_train_embed = None
+        self.pred_lr = cfg.max_epochs.pred_lr
+        self.max_pred_steps = cfg.max_epochs.max_pred_steps
         if cfg.method_kwargs.pred_type == "mlp":
             self.predictor = MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)
         else:
@@ -116,6 +118,8 @@ class CLNonLinPredMinv3(BaseMethod):
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.norm_type")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_loss_transform")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_lamb")
+        assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_lr")
+        assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.max_pred_steps")
 
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.mask_fraction")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.proj_hidden_dim")
@@ -229,8 +233,9 @@ class CLNonLinPredMinv3(BaseMethod):
     
     def configure_optimizers(self) -> Tuple[List, List]:
         self.opt_pred, self.sched_pred = self.configure_optimizers_base([
-                                  {"name": "predictor", "params": self.predictor.parameters(), "lr": 1e-3, "weight_decay": 1e-6}])     
-        return super().configure_optimizers()
+                                  {"name": "predictor", "params": self.predictor.parameters(), "lr": self.pred_lr, "weight_decay": 1e-6}])     
+        extra_learnable_params = [{"name": "projector", "params": self.projector.parameters()}]
+        return super().learnable_params + extra_learnable_params
     #     return opt_pred + opt_rem, sched_pred + sched_rem
 
     def training_step(self, batch: Sequence[Any], batch_idx: int) -> torch.Tensor:
@@ -276,9 +281,10 @@ class CLNonLinPredMinv3(BaseMethod):
             self.predictor.eval()
             prediction_eval = self.predictor(eval_input)
             loss_eval_old = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
-            self.log("eval_old", loss_eval_old.item())
+            first_eval = loss_eval_old.item()
+            self.log("eval_old", first_eval)
         count = 0
-        while self.embed_train is not None and count < 200:
+        while self.embed_train is not None and count < self.max_pred_steps:
             count += 1
             self.predictor.train()
             opt_pred = self.opt_pred[0]
@@ -320,6 +326,7 @@ class CLNonLinPredMinv3(BaseMethod):
                     loss_eval_old = loss_eval_new 
         if self.embed_train is not None:
             self.log("eval_new", loss_eval_new.item())
+            self.log("eval_diff", first_eval - loss_eval_new.item())
         self.embed_train = embeddings_eval.detach()
 
         # ===== Encoder backward pass =====

@@ -25,6 +25,8 @@ method_kwargs:
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
   pred_loss_transform: "identity" #[log, sqrt, identity]
+  max_pred_steps: 200
+  pred_lr: 1e-3
   pred_kwargs:
     layers: 3
     hidden_dim: 128
