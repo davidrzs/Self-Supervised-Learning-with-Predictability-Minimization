@@ -224,7 +224,7 @@ def main(cfg: DictConfig):
             "logger": wandb_logger if cfg.wandb.enabled else None,
             "callbacks": callbacks,
             "enable_checkpointing": False,
-            "strategy": DDPStrategy(find_unused_parameters=False)
+            "strategy": DDPStrategy(find_unused_parameters=True)
             if cfg.strategy == "ddp"
             else cfg.strategy,
             "profiler": SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile"),

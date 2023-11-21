@@ -19,16 +19,16 @@ method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
   mask_fraction: 0.5
-  lamb: 0.1
+  lamb: .1
   pred_lamb: 0.1
   proj_size: 3
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
   pred_loss_transform: "identity" #[log, sqrt, identity]
   pred_kwargs:
-    layers: 1
-    hidden_dim: 2048
-    activation: "relu" # [relu, tanh]
+    layers: 3
+    hidden_dim: 128
+    activation: "tanh" # [relu, tanh]
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
