@@ -230,8 +230,7 @@ class CLNonLinPredMinv3(BaseMethod):
         return [optimizer], [scheduler]
     
     def configure_optimizers(self) -> Tuple[List, List]:
-        self.opt_pred, self.sched_pred = self.configure_optimizers_base([
-                                  {"name": "predictor", "params": self.predictor.parameters(), "lr": self.pred_lr, "weight_decay": 1e-6}])     
+        self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr,weight_decay=1e-3)     
         return super().configure_optimizers()
 
 
@@ -271,12 +270,12 @@ class CLNonLinPredMinv3(BaseMethod):
         predictor_loss = 0
         predictor_loss_raw = 0
         
-        
+        detached_embeddings = embeddings_eval.detach()
         with torch.no_grad():
-            mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
+            mask_eval, eval_input = to_dataset(detached_embeddings, self.mask_fraction)
             self.predictor.eval()
             prediction_eval = self.predictor(eval_input)
-            loss_eval_old = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+            loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings, mask_eval).mean()
 
             first_eval = loss_eval_old.item()
             self.log("eval_old", first_eval)
@@ -285,7 +284,6 @@ class CLNonLinPredMinv3(BaseMethod):
         while self.embed_train is not None and count < self.max_pred_steps:
             count += 1
             self.predictor.train()
-            opt_pred = self.opt_pred[0]
 
             embeddings_train = self.embed_train
             mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
@@ -301,17 +299,17 @@ class CLNonLinPredMinv3(BaseMethod):
             else:
                 raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
             
-            opt_pred.zero_grad()
+            self.opt_pred.zero_grad()
             predictor_loss.backward()
-            opt_pred.step()
+            self.opt_pred.step()
             # Zero again for the encoder
-            opt_pred.zero_grad()
+            # self.opt_pred.zero_grad()
             #self.sched_pred[0].step()
 
             self.predictor.eval()
             with torch.no_grad():
                 prediction_eval_new = self.predictor(eval_input)
-            loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
+            loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings, mask_eval).mean()
             if loss_eval_new > loss_eval_old:
                 break
             else:
@@ -319,13 +317,14 @@ class CLNonLinPredMinv3(BaseMethod):
         if self.embed_train is not None:
             self.log("eval_new", loss_eval_new.item())
             self.log("eval_diff", first_eval - loss_eval_new.item())
-        self.embed_train = embeddings_eval.detach()
+        self.embed_train = detached_embeddings.detach()
 
         # ===== Encoder backward pass =====
         # The gradients of the predictor could be reused.
         self.predictor.eval()
         mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
         prediction_eval = self.predictor(eval_input)
+        print("prediction_eval", prediction_eval)
         predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
         if self.pred_loss_transform == "log":   
             predictability_loss = torch.log(predictability_loss_raw)
@@ -337,7 +336,6 @@ class CLNonLinPredMinv3(BaseMethod):
             raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
     
         loss_encoder_pred =  -self.lamb * predictability_loss
-        
         N, D = z1_norm.shape
         #bi,bi->i?
         corr = torch.einsum("bi, bj -> ij", z1_norm, z2_norm) / N
