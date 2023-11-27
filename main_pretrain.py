@@ -73,7 +73,8 @@ def main(cfg: DictConfig):
     if cfg.data.num_large_crops != 2:
         assert cfg.method in ["wmse", "mae"]
 
-    model = METHODS[cfg.method](cfg)
+    profiler = SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile")
+    model = METHODS[cfg.method](cfg, profiler=profiler)
     make_contiguous(model)
     # can provide up to ~20% speed up
     if not cfg.performance.disable_channel_last:
@@ -220,6 +221,7 @@ def main(cfg: DictConfig):
     valid_kwargs = inspect.signature(Trainer.__init__).parameters
     trainer_kwargs = {name: trainer_kwargs[name] for name in valid_kwargs if name in trainer_kwargs}
     #callbacks.append(ModelSummary(max_depth=1))
+
     trainer_kwargs.update(
         {
             "logger": wandb_logger if cfg.wandb.enabled else None,
@@ -228,7 +230,7 @@ def main(cfg: DictConfig):
             "strategy": DDPStrategy(find_unused_parameters=True)
             if cfg.strategy == "ddp"
             else cfg.strategy,
-            # "profiler": SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile"),
+            "profiler": profiler,
             # "enable_model_summary": True,
         }
     )
