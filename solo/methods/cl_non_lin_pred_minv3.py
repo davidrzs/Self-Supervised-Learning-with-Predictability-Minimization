@@ -31,6 +31,7 @@ from solo.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 from torch.optim.lr_scheduler import MultiStepLR
 from functools import partial
 from typing import Any, Callable, Dict, List, Sequence, Tuple, Union
+from pytorch_lightning.profilers import SimpleProfiler
 
 def static_lr(
     get_lr: Callable,
@@ -43,7 +44,7 @@ def static_lr(
     return lrs
 
 class CLNonLinPredMinv3(BaseMethod):
-    def __init__(self, cfg: omegaconf.DictConfig):
+    def __init__(self, cfg: omegaconf.DictConfig, profiler: SimpleProfiler = None):
         """Implements Barlow Twins (https://arxiv.org/abs/2103.03230)
 
         Extra cfg settings:
@@ -68,7 +69,7 @@ class CLNonLinPredMinv3(BaseMethod):
         self.embed_train = None
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
-
+        self.profiler = profiler
         self.pred_loss_transform = cfg.method_kwargs.pred_loss_transform
         self.norm_type = cfg.method_kwargs.norm_type
         # projector
@@ -245,104 +246,107 @@ class CLNonLinPredMinv3(BaseMethod):
         Returns:
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
-        #===== Encoder forward pass =====
-        out = super().training_step(batch, batch_idx)
-        z1, z2 = out["z"]
-        #Normalize each feature vector
-        if self.norm_type == "l2":
-            z1_norm = F.normalize(z1, dim=-1)
-            z2_norm = F.normalize(z2, dim=-1)
-        elif self.norm_type == "standardize":
-            norm_layer = nn.BatchNorm1d(self.proj_output_dim, affine=False, device=z1.device)
-            z1_norm = norm_layer(z1)
-            z2_norm = norm_layer(z2)
-        elif self.norm_type == "both":
-            z1_norm_ = F.normalize(z1, dim=-1)
-            z2_norm_ = F.normalize(z2, dim=-1)
-            z1_norm = (z1_norm_ - z1_norm_.mean(dim=0)) / z1_norm_.std(dim=0)
-            z2_norm = (z2_norm_ - z2_norm_.mean(dim=0)) / z2_norm_.std(dim=0)
-        else:
-            raise ValueError(f"Norm type {self.norm_type} not implemented")
-
-        embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
-        
-        #===== Predictor forward and backward pass =====
-        predictor_loss = 0
-        predictor_loss_raw = 0
-        
-        detached_embeddings = embeddings_eval.detach()
-        with torch.no_grad():
-            mask_eval, eval_input = to_dataset(detached_embeddings, self.mask_fraction)
-            self.predictor.eval()
-            prediction_eval = self.predictor(eval_input)
-            loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings, mask_eval).mean()
-
-            first_eval = loss_eval_old.item()
-            self.log("eval_old", first_eval)
-
-        count = 0
-        while self.embed_train is not None and count < self.max_pred_steps:
-            count += 1
-            self.predictor.train()
-            torch.set_grad_enabled(True)
-            assert self.predictor.pred_layers[0].weight.requires_grad
-            embeddings_train = self.embed_train
-            mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
-            train_input.requires_grad_()
-            prediction_train = self.predictor(train_input)
-            predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
-  
-           # if self.pred_loss_transform == "log":   
-           #     predictor_loss = torch.log(predictor_loss_raw)
-           # elif self.pred_loss_transform == "sqrt":
-           #     predictor_loss = torch.sqrt(predictor_loss_raw)
-           # elif self.pred_loss_transform == "identity":
-           #     predictor_loss = predictor_loss_raw
-           # else:
-           #     raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
-            predictor_loss = predictor_loss_raw
-            self.opt_pred.zero_grad()
-            predictor_loss.backward()
-            self.opt_pred.step()
-            # Zero again for the encoder
-            # self.opt_pred.zero_grad()
-            #self.sched_pred[0].step()
-
-            self.predictor.eval()
-            with torch.no_grad():
-                prediction_eval_new = self.predictor(eval_input)
-            loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings, mask_eval).mean()
-            if loss_eval_new > loss_eval_old:
-                break
+        with self.profiler.profile("forward_backbone1"):
+            #===== Encoder forward pass =====
+            out = super().training_step(batch, batch_idx)
+            z1, z2 = out["z"]
+            #Normalize each feature vector
+            if self.norm_type == "l2":
+                z1_norm = F.normalize(z1, dim=-1)
+                z2_norm = F.normalize(z2, dim=-1)
+            elif self.norm_type == "standardize":
+                norm_layer = nn.BatchNorm1d(self.proj_output_dim, affine=False, device=z1.device)
+                z1_norm = norm_layer(z1)
+                z2_norm = norm_layer(z2)
+            elif self.norm_type == "both":
+                z1_norm_ = F.normalize(z1, dim=-1)
+                z2_norm_ = F.normalize(z2, dim=-1)
+                z1_norm = (z1_norm_ - z1_norm_.mean(dim=0)) / z1_norm_.std(dim=0)
+                z2_norm = (z2_norm_ - z2_norm_.mean(dim=0)) / z2_norm_.std(dim=0)
             else:
-                loss_eval_old = loss_eval_new 
-        if self.embed_train is not None:
-            self.log("eval_new", loss_eval_new.item())
-            self.log("eval_diff", first_eval - loss_eval_new.item())
-        self.embed_train = detached_embeddings.detach()
+                raise ValueError(f"Norm type {self.norm_type} not implemented")
 
-        # ===== Encoder backward pass =====
-        # The gradients of the predictor could be reused.
-        self.predictor.eval()
-        mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
-        prediction_eval = self.predictor(eval_input)
-        #print("prediction_eval", prediction_eval)
-        predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
-        if self.pred_loss_transform == "log":   
-            predictability_loss = torch.log(predictability_loss_raw)
-        elif self.pred_loss_transform == "sqrt":
-            predictability_loss = torch.sqrt(predictability_loss_raw)
-        elif self.pred_loss_transform == "identity":
-            predictability_loss = predictability_loss_raw
-        else:
-            raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
+            embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
+
+        with self.profiler.profile("train_predictor"):
+            #===== Predictor forward and backward pass =====
+            predictor_loss = 0
+            predictor_loss_raw = 0
+            
+            detached_embeddings = embeddings_eval.detach()
+            with torch.no_grad():
+                mask_eval, eval_input = to_dataset(detached_embeddings, self.mask_fraction)
+                self.predictor.eval()
+                prediction_eval = self.predictor(eval_input)
+                loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings, mask_eval).mean()
+
+                first_eval = loss_eval_old.item()
+                self.log("eval_old", first_eval)
+
+            count = 0
+            while self.embed_train is not None and count < self.max_pred_steps:
+                count += 1
+                self.predictor.train()
+                torch.set_grad_enabled(True)
+                assert self.predictor.pred_layers[0].weight.requires_grad
+                embeddings_train = self.embed_train
+                mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
+                train_input.requires_grad_()
+                prediction_train = self.predictor(train_input)
+                predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
     
-        loss_encoder_pred =  -self.lamb * predictability_loss
-        N, D = z1_norm.shape
-        #bi,bi->i?
-        corr = torch.einsum("bi, bj -> ij", z1_norm, z2_norm) / N
-        on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
-        loss_encoder = on_diag + loss_encoder_pred + out["loss"]
+            # if self.pred_loss_transform == "log":   
+            #     predictor_loss = torch.log(predictor_loss_raw)
+            # elif self.pred_loss_transform == "sqrt":
+            #     predictor_loss = torch.sqrt(predictor_loss_raw)
+            # elif self.pred_loss_transform == "identity":
+            #     predictor_loss = predictor_loss_raw
+            # else:
+            #     raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
+                predictor_loss = predictor_loss_raw
+                self.opt_pred.zero_grad()
+                predictor_loss.backward()
+                self.opt_pred.step()
+                # Zero again for the encoder
+                # self.opt_pred.zero_grad()
+                #self.sched_pred[0].step()
+
+                self.predictor.eval()
+                with torch.no_grad():
+                    prediction_eval_new = self.predictor(eval_input)
+                loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings, mask_eval).mean()
+                if loss_eval_new > loss_eval_old:
+                    break
+                else:
+                    loss_eval_old = loss_eval_new 
+            if self.embed_train is not None:
+                self.log("eval_new", loss_eval_new.item())
+                self.log("eval_diff", first_eval - loss_eval_new.item())
+            self.embed_train = detached_embeddings.detach()
+
+        with self.profiler.profile("forward_backbone2"):
+            # ===== Encoder backward pass =====
+            # The gradients of the predictor could be reused.
+            self.predictor.eval()
+            mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
+            prediction_eval = self.predictor(eval_input)
+            #print("prediction_eval", prediction_eval)
+            predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+            if self.pred_loss_transform == "log":   
+                predictability_loss = torch.log(predictability_loss_raw)
+            elif self.pred_loss_transform == "sqrt":
+                predictability_loss = torch.sqrt(predictability_loss_raw)
+            elif self.pred_loss_transform == "identity":
+                predictability_loss = predictability_loss_raw
+            else:
+                raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
+        
+            loss_encoder_pred =  -self.lamb * predictability_loss
+            N, D = z1_norm.shape
+            #bi,bi->i?
+            corr = torch.einsum("bi, bj -> ij", z1_norm, z2_norm) / N
+            on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
+            loss_encoder = on_diag + loss_encoder_pred + out["loss"]
 
                 
         
