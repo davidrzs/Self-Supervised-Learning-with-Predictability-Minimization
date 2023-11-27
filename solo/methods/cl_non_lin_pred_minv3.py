@@ -31,7 +31,7 @@ from solo.utils.lr_scheduler import LinearWarmupCosineAnnealingLR
 from torch.optim.lr_scheduler import MultiStepLR
 from functools import partial
 from typing import Any, Callable, Dict, List, Sequence, Tuple, Union
-from pytorch_lightning.profilers import SimpleProfiler
+from pytorch_lightning.profilers import SimpleProfiler, PassThroughProfiler
 
 def static_lr(
     get_lr: Callable,
@@ -69,7 +69,7 @@ class CLNonLinPredMinv3(BaseMethod):
         self.embed_train = None
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
-        self.profiler = profiler
+        self.profiler = profiler or PassThroughProfiler()
         self.pred_loss_transform = cfg.method_kwargs.pred_loss_transform
         self.norm_type = cfg.method_kwargs.norm_type
         # projector
