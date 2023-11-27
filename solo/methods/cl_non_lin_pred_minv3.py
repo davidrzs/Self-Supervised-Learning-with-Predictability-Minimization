@@ -284,21 +284,23 @@ class CLNonLinPredMinv3(BaseMethod):
         while self.embed_train is not None and count < self.max_pred_steps:
             count += 1
             self.predictor.train()
-
+            torch.set_grad_enabled(True)
+            assert self.predictor.pred_layers[0].weight.requires_grad
             embeddings_train = self.embed_train
             mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
+            train_input.requires_grad_()
             prediction_train = self.predictor(train_input)
             predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
   
-            if self.pred_loss_transform == "log":   
-                predictor_loss = torch.log(predictor_loss_raw)
-            elif self.pred_loss_transform == "sqrt":
-                predictor_loss = torch.sqrt(predictor_loss_raw)
-            elif self.pred_loss_transform == "identity":
-                predictor_loss = predictor_loss_raw
-            else:
-                raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
-            
+           # if self.pred_loss_transform == "log":   
+           #     predictor_loss = torch.log(predictor_loss_raw)
+           # elif self.pred_loss_transform == "sqrt":
+           #     predictor_loss = torch.sqrt(predictor_loss_raw)
+           # elif self.pred_loss_transform == "identity":
+           #     predictor_loss = predictor_loss_raw
+           # else:
+           #     raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
+            predictor_loss = predictor_loss_raw
             self.opt_pred.zero_grad()
             predictor_loss.backward()
             self.opt_pred.step()
@@ -324,7 +326,7 @@ class CLNonLinPredMinv3(BaseMethod):
         self.predictor.eval()
         mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
         prediction_eval = self.predictor(eval_input)
-        print("prediction_eval", prediction_eval)
+        #print("prediction_eval", prediction_eval)
         predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
         if self.pred_loss_transform == "log":   
             predictability_loss = torch.log(predictability_loss_raw)
