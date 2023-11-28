@@ -43,7 +43,7 @@ def static_lr(
         lrs[idx] = lr
     return lrs
 
-class CLNonLinPredMinv3(BaseMethod):
+class CLNonLinPredMinv4(BaseMethod):
     def __init__(self, cfg: omegaconf.DictConfig, profiler: SimpleProfiler = None):
         """Implements Barlow Twins (https://arxiv.org/abs/2103.03230)
 
@@ -112,7 +112,7 @@ class CLNonLinPredMinv3(BaseMethod):
             omegaconf.DictConfig: same as the argument, used to avoid errors.
         """
         #TODO: Add warnings for missing parameters
-        cfg = super(CLNonLinPredMinv3, CLNonLinPredMinv3).add_and_assert_specific_cfg(cfg)
+        cfg = super(CLNonLinPredMinv4, CLNonLinPredMinv4).add_and_assert_specific_cfg(cfg)
         
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.lamb")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_type")
@@ -281,8 +281,9 @@ class CLNonLinPredMinv3(BaseMethod):
             for i,predictor in enumerate(self.predictors):
                 predictor.train()
                 pred = predictor(torch.cat((detached_embeddings[:,:i*self.group_size],detached_embeddings[:,(i+1)*self.group_size:]), dim=1))
-                loss = (pred - detached_embeddings[:,i*self.group_size:(i+1)*self.group_size]).pow(2).sum()
+                loss = (pred - detached_embeddings[:,i*self.group_size:(i+1)*self.group_size]).pow(2).mean()
                 loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.predictors.parameters(), 0.2)
             self.opt_pred.step()
             self.opt_pred.zero_grad()
             
@@ -299,10 +300,10 @@ class CLNonLinPredMinv3(BaseMethod):
             on_diag = 0
             for i,predictor in enumerate(self.predictors):
                 pred = predictor(torch.cat((embeddings_eval[:,:i*self.group_size],embeddings_eval[:,(i+1)*self.group_size:]), dim=1))
-                loss = (pred - embeddings_eval[:,i*self.group_size:(i+1)*self.group_size]).pow(2).sum()
+                loss = (pred - embeddings_eval[:,i*self.group_size:(i+1)*self.group_size]).pow(2).mean()
                 non_lin_loss = loss + non_lin_loss
                 corr = torch.einsum("bi, bj -> ij", z1_norm[:,i*self.group_size:(i+1)*self.group_size], z2_norm[:,i*self.group_size:(i+1)*self.group_size]) / N
-                diag = torch.eye(D, device=corr.device)
+                diag = torch.eye(self.group_size, device=corr.device)
                 cdif = (corr - diag).pow(2)
                 cdif[~diag.bool()] *= self.lamb
                 lin_loss = lin_loss +  cdif.sum()
@@ -313,13 +314,14 @@ class CLNonLinPredMinv3(BaseMethod):
             # #bi,bi->i?
             # corr = torch.einsum("bi, bj -> ij", z1_norm, z2_norm) / N
             # on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
-            loss_encoder = lin_loss + self.pred_lamb * non_lin_loss + out["loss"]
+            loss_encoder = lin_loss - self.pred_lamb * non_lin_loss + out["loss"]
 
                 
         
         self.log("cl_scaled_predictor_loss", self.pred_lamb * non_lin_loss, on_epoch=True, sync_dist=True)
         self.log("cl_predictor_loss", non_lin_loss, on_epoch=True, sync_dist=True)
         self.log("cl_pred_proportion", abs(loss_encoder.item())/abs(lin_loss.item()), on_epoch=True, sync_dist=True)
+        self.log("cl_predictor_lin_loss", lin_loss, on_epoch=True, sync_dist=True)
         # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
         # self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, sync_dist=True)
         # self.log("cl_scaled_predictability_loss", predictability_loss, on_epoch=True, sync_dist=True)

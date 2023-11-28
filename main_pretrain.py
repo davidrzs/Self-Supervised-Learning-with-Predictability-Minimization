@@ -74,7 +74,10 @@ def main(cfg: DictConfig):
         assert cfg.method in ["wmse", "mae"]
 
     profiler = SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile")
-    model = METHODS[cfg.method](cfg, profiler=profiler)
+    if cfg.method in ["cl_non_lin_pred_minv3"]:
+        model = METHODS[cfg.method](cfg, profiler=profiler)
+    else:
+        model = METHODS[cfg.method](cfg)
     make_contiguous(model)
     # can provide up to ~20% speed up
     if not cfg.performance.disable_channel_last:
