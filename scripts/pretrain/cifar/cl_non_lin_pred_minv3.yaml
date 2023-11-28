@@ -17,7 +17,7 @@ backbone:
   name: "resnet18"
 method_kwargs:
   proj_hidden_dim: 2048
-  proj_output_dim: 128
+  proj_output_dim: 64
   mask_fraction: 0.5
   lamb: .1
   pred_lamb: 0.1
@@ -29,8 +29,8 @@ method_kwargs:
   pred_lr: 1e-3
   pred_kwargs:
     layers: 1
-    hidden_dim: 128
-    activation: "tanh" # [relu, tanh]
+    hidden_dim: 256
+    activation: "relu" # [relu, tanh]
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
@@ -39,7 +39,7 @@ data:
   num_workers: 4
 optimizer: 
   name: "lars"
-  batch_size: 512
+  batch_size: 2048
   lr: 0.3
   classifier_lr: 0.1
   weight_decay: 1e-4
@@ -56,9 +56,11 @@ checkpoint:
 auto_resume:
   enabled: False
 # overwrite PL stuff
-max_epochs: 1000
+max_epochs: 1500
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
 precision: 16-mixed
+seed: 0
+
