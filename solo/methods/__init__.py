@@ -23,6 +23,7 @@ from solo.methods.cl_non_lin_pred_min import CLNonLinPredMin
 from solo.methods.cl_non_lin_pred_minv2 import CLNonLinPredMinv2
 from solo.methods.cl_non_lin_pred_minv3 import CLNonLinPredMinv3
 from solo.methods.cl_non_lin_pred_minv4 import CLNonLinPredMinv4
+from solo.methods.cl_lin_pred_min_sgd import CLLinPredMinSGD
 from solo.methods.barlow_cl_lin_pred_min import BarlowCLLinPredMin
 from solo.methods.base import BaseMethod
 from solo.methods.byol import BYOL
@@ -54,6 +55,7 @@ METHODS = {
     "cl_non_lin_pred_minv2": CLNonLinPredMinv2,
     "cl_non_lin_pred_minv3": CLNonLinPredMinv3,
     "cl_non_lin_pred_minv4": CLNonLinPredMinv4,
+    "cl_lin_pred_min_sgd": CLLinPredMinSGD,
     "barlow_cl_lin_pred_min": BarlowCLLinPredMin,  
     "barlow_twins": BarlowTwins,
     "byol": BYOL,

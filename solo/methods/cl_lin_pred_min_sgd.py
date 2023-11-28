@@ -109,7 +109,7 @@ class CLLinPredMinSGD(BaseMethod):
             omegaconf.DictConfig: same as the argument, used to avoid errors.
         """
         #TODO: Add warnings for missing parameters
-        cfg = super(CLNonLinPredMinv3, CLNonLinPredMinv3).add_and_assert_specific_cfg(cfg)
+        cfg = super(CLLinPredMinSGD, CLLinPredMinSGD).add_and_assert_specific_cfg(cfg)
         
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.lamb")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_type")
