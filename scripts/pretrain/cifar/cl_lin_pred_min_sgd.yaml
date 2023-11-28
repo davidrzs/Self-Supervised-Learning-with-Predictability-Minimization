@@ -18,7 +18,7 @@ backbone:
 method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
-  mask_fraction: 0.5
+  mask_fraction: 0.0
   lamb: .1
   pred_lamb: 0.1
   proj_size: 3

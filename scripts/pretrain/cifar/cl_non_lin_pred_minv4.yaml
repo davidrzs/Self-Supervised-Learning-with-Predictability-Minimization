@@ -20,7 +20,7 @@ method_kwargs:
   proj_output_dim: 128
   mask_fraction: 0.5
   lamb: .1
-  pred_lamb: 0.1
+  pred_lamb: 1
   proj_size: 3
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
@@ -28,6 +28,7 @@ method_kwargs:
   max_pred_steps: 200
   pred_lr: 1e-3
   pred_kwargs:
+    k: 2
     layers: 1
     hidden_dim: 128
     activation: "tanh" # [relu, tanh]
