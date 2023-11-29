@@ -273,22 +273,22 @@ class CLLinPredMinSGD(BaseMethod):
             predictor_loss = 0
             predictor_loss_raw = 0
             
-            detached_embeddings = embeddings_eval.detach()
-            with torch.no_grad():
-                mask_eval, eval_input = to_dataset(detached_embeddings, self.mask_fraction)
-                self.predictor.eval()
-                prediction_eval = self.predictor(eval_input)
-                loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings, mask_eval).mean()
+            detached_embeddings_eval = embeddings_eval.detach()
+            detached_embeddings_train = embeddings_eval.detach()
 
-                first_eval = loss_eval_old.item()
-                self.log("eval_old", first_eval)
+            mask_eval, eval_input = to_dataset(detached_embeddings_eval, self.mask_fraction)
+            self.predictor.eval()
+            prediction_eval = self.predictor(eval_input)
+            loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings_eval, mask_eval).mean()
+
+            first_eval = loss_eval_old.item()
+            self.log("eval_old", first_eval)
 
             count = 0
-            self.embed_train = detached_embeddings
+            self.embed_train = detached_embeddings_train
             while count < self.max_pred_steps:
                 count += 1
                 self.predictor.train()
-                torch.set_grad_enabled(True)
                 assert self.predictor.pred_layers[0].weight.requires_grad
                 embeddings_train = self.embed_train
                 mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
@@ -304,9 +304,8 @@ class CLLinPredMinSGD(BaseMethod):
                 self.opt_pred.zero_grad()
 
                 self.predictor.eval()
-                with torch.no_grad():
-                    prediction_eval_new = self.predictor(eval_input)
-                loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings, mask_eval).mean()
+                prediction_eval_new = self.predictor(eval_input)
+                loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings_eval, mask_eval).mean()
                 if loss_eval_new > loss_eval_old:
                     break
                 else:
