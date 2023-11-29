@@ -273,21 +273,20 @@ class CLNonLinPredMinv3(BaseMethod):
             predictor_loss = 0
             predictor_loss_raw = 0
             
-            detached_embeddings = embeddings_eval.detach()
-            with torch.no_grad():
-                mask_eval, eval_input = to_dataset(detached_embeddings, self.mask_fraction)
-                self.predictor.eval()
-                prediction_eval = self.predictor(eval_input)
-                loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings, mask_eval).mean()
+            detached_embeddings_eval = embeddings_eval.detach()
 
-                first_eval = loss_eval_old.item()
-                self.log("eval_old", first_eval)
+            mask_eval, eval_input = to_dataset(detached_embeddings_eval, self.mask_fraction)
+            self.predictor.eval()
+            prediction_eval = self.predictor(eval_input)
+            loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings_eval, mask_eval).mean()
+
+            first_eval = loss_eval_old.item()
+            self.log("eval_old", first_eval)
 
             count = 0
             while self.embed_train is not None and count < self.max_pred_steps:
                 count += 1
                 self.predictor.train()
-                torch.set_grad_enabled(True)
                 assert self.predictor.pred_layers[0].weight.requires_grad
                 embeddings_train = self.embed_train
                 mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
@@ -312,9 +311,9 @@ class CLNonLinPredMinv3(BaseMethod):
                 #self.sched_pred[0].step()
 
                 self.predictor.eval()
-                with torch.no_grad():
-                    prediction_eval_new = self.predictor(eval_input)
-                loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings, mask_eval).mean()
+
+                prediction_eval_new = self.predictor(eval_input)
+                loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings_eval, mask_eval).mean()
                 if loss_eval_new > loss_eval_old:
                     break
                 else:
@@ -322,7 +321,7 @@ class CLNonLinPredMinv3(BaseMethod):
             if self.embed_train is not None:
                 self.log("eval_new", loss_eval_new.item())
                 self.log("eval_diff", first_eval - loss_eval_new.item())
-            self.embed_train = detached_embeddings.detach()
+            self.embed_train = embeddings_eval.detach()
 
         with self.profiler.profile("forward_backbone2"):
             # ===== Encoder backward pass =====
