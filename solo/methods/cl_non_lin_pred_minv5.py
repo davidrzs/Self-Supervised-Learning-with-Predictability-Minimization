@@ -232,7 +232,7 @@ class CLNonLinPredMinv5(BaseMethod):
     
     def configure_optimizers(self) -> Tuple[List, List]:
         self.hidden_predictor[0].to(self.device)
-        self.opt_pred = torch.optim.AdamW(self.hidden_predictor[0].parameters(), lr = self.pred_lr,weight_decay=1e-3, device = self.device)
+        self.opt_pred = torch.optim.AdamW(self.hidden_predictor[0].parameters(), lr = self.pred_lr,weight_decay=1e-3)
         return super().configure_optimizers()
 
 
@@ -308,9 +308,9 @@ class CLNonLinPredMinv5(BaseMethod):
                     break
                 else:
                     loss_eval_old = loss_eval_new 
-            if self.embed_train is not None:
-                self.log("eval_new", loss_eval_new.item())
-                self.log("eval_diff", first_eval - loss_eval_new.item())
+            
+            self.log("eval_new", loss_eval_new.item())
+            self.log("eval_diff", first_eval - loss_eval_new.item())
             self.embed_train = embeddings_eval.detach()
 
         with self.profiler.profile("forward_backbone2"):
