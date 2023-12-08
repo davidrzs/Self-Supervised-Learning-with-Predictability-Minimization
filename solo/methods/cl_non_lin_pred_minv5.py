@@ -277,19 +277,21 @@ class CLNonLinPredMinv5(BaseMethod):
             
             detached_embeddings_eval = embeddings_eval.detach()
 
+            predictor.to('cpu')
+            def pred(input):
+                return pred(input.to('cpu')).to(self.device)
             mask_eval, eval_input = to_dataset(detached_embeddings_eval, self.mask_fraction)
             predictor.eval()
-            prediction_eval = predictor(eval_input)
+            prediction_eval = pred(eval_input)
             loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings_eval, mask_eval).mean()
 
             first_eval = loss_eval_old.item()
             self.log("eval_old", first_eval)
-
             count = 0
             while count < self.max_pred_steps:
                 count += 1
                 predictor.train()
-                prediction_train = predictor(eval_input)
+                prediction_train = pred(eval_input)
                 predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, detached_embeddings_eval, mask_eval).mean()
     
                 predictor_loss = predictor_loss_raw
@@ -302,7 +304,7 @@ class CLNonLinPredMinv5(BaseMethod):
 
                 predictor.eval()
 
-                prediction_eval_new = predictor(eval_input)
+                prediction_eval_new = pred(eval_input)
                 loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings_eval, mask_eval).mean()
                 if loss_eval_new > loss_eval_old:
                     break
@@ -318,7 +320,7 @@ class CLNonLinPredMinv5(BaseMethod):
             # The gradients of the predictor could be reused.
             predictor.eval()
             mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
-            prediction_eval = predictor(eval_input)
+            prediction_eval = pred(eval_input)
             #print("prediction_eval", prediction_eval)
             predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
             if self.pred_loss_transform == "log":   
