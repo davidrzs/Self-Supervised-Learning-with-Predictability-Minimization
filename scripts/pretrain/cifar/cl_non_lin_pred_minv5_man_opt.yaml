@@ -28,7 +28,6 @@ method_kwargs:
   max_pred_steps: 200
   pred_lr: 1e-3
   pred_kwargs:
-    k: 2
     layers: 1
     hidden_dim: 128
     activation: "tanh" # [relu, tanh]
