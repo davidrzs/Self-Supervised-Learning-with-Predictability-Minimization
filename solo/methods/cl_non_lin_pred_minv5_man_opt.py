@@ -32,6 +32,8 @@ from torch.optim.lr_scheduler import MultiStepLR
 from functools import partial
 from typing import Any, Callable, Dict, List, Sequence, Tuple, Union
 from pytorch_lightning.profilers import SimpleProfiler, PassThroughProfiler
+from pytorch_lightning.core.module import MODULE_OPTIMIZERS
+from pytorch_lightning.utilities.types import LRSchedulerPLType
 
 def static_lr(
     get_lr: Callable,
@@ -43,7 +45,7 @@ def static_lr(
         lrs[idx] = lr
     return lrs
 
-class CLNonLinPredMinv5(BaseMethod):
+class CLNonLinPredMinv5Man(BaseMethod):
     def __init__(self, cfg: omegaconf.DictConfig, profiler: SimpleProfiler = None):
         """Implements Barlow Twins (https://arxiv.org/abs/2103.03230)
 
@@ -93,8 +95,9 @@ class CLNonLinPredMinv5(BaseMethod):
         self.pred_train_embed = None
         self.pred_lr = cfg.method_kwargs.pred_lr
         self.max_pred_steps = cfg.method_kwargs.max_pred_steps
+        self.pred_train_type = 'same'
         if cfg.method_kwargs.pred_type == "mlp":
-            self.hidden_predictor= [MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)]
+            self.predictor= MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)
         else:
             raise ValueError(f"Predictor {cfg.method_kwargs.pred_type} not implemented")
         
@@ -110,7 +113,7 @@ class CLNonLinPredMinv5(BaseMethod):
             omegaconf.DictConfig: same as the argument, used to avoid errors.
         """
         #TODO: Add warnings for missing parameters
-        cfg = super(CLNonLinPredMinv5, CLNonLinPredMinv5).add_and_assert_specific_cfg(cfg)
+        cfg = super(CLNonLinPredMinv5Man, CLNonLinPredMinv5Man).add_and_assert_specific_cfg(cfg)
         
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.lamb")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_type")
@@ -232,9 +235,109 @@ class CLNonLinPredMinv5(BaseMethod):
         return [optimizer], [scheduler]
     
     def configure_optimizers(self) -> Tuple[List, List]:
-        self.hidden_predictor[0].to(self.device)
-        self.opt_pred = torch.optim.AdamW(self.hidden_predictor[0].parameters(), lr = self.pred_lr,weight_decay=1e-3)
-        return super().configure_optimizers()
+        enc_opt, enc_sched = self.configure_optimizers_base(self.learnable_params)
+        pred_opt, pred_sched = self.configure_optimizers_base(self.predictor.parameters())
+        return enc_opt + pred_opt, enc_sched + pred_sched
+
+    def optimize_predictor(self, embeddings_train: torch.Tensor, embeddings_eval: torch.Tensor, 
+                           optimizer: MODULE_OPTIMIZERS, scheduler: LRSchedulerPLType = None):
+        """Optimizes the predictor.
+
+        Args:
+            embeddings_train (torch.Tensor): embeddings to train the predictor on. (Ignored if pred_train_type == 'same')
+            embeddings_eval (torch.Tensor): embeddings to evaluate the predictor on.
+            optimizer (MODULE_OPTIMIZERS): optimizer to use for the predictor.
+        Returns:
+            float: predictor loss.
+        """
+        #Prepare data
+        mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
+        if self.pred_train_type == 'same':
+            embeddings_train = embeddings_eval
+            mask_train, train_input = mask_eval, eval_input
+        else:
+            raise ValueError(f"Predictor train type {self.pred_train_type} not implemented")
+        
+        #Do a first eval step
+        self.predictor.eval()
+        prediction_eval = self.predictor(eval_input)
+        loss_eval_initial = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+        self.log("eval_old", loss_eval_initial)
+
+        #Train the predictor
+        optimizer.zero_grad()
+        count = 0
+        loss_eval_old = loss_eval_initial
+
+        while count < self.max_pred_steps:
+            count += 1
+            self.predictor.train()
+            prediction_train = self.predictor(train_input)
+            predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
+            predictor_loss = predictor_loss_raw
+            
+            #Optimize
+            optimizer.zero_grad()
+            self.manual_backward(predictor_loss)
+            optimizer.step()
+            #TODO: Consider lr sched
+            if scheduler is not None:
+                scheduler.step()
+
+            #TODO: Optimize in case of same data
+            self.predictor.eval()
+            prediction_eval_new = self.predictor(eval_input)
+            loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
+            
+            if loss_eval_new > loss_eval_old:
+                break
+            else:
+                loss_eval_old = loss_eval_new 
+
+        self.log("eval_new", loss_eval_new)
+        self.log("eval_diff", loss_eval_initial - loss_eval_new)
+        self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
+        self.log("opt_pred_steps", count, sync_dist=True)
+
+    def optimize_encoder(self, embeddings_eval: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor, 
+                         class_loss:torch.Tensor, optimizer: MODULE_OPTIMIZERS, scheduler: LRSchedulerPLType):
+        
+        #Calculate loss
+        self.predictor.eval()
+        mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
+        prediction_eval = self.predictor(eval_input)
+        predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+        
+        if self.pred_loss_transform == "log":   
+            predictability_loss = torch.log(predictability_loss_raw)
+        elif self.pred_loss_transform == "sqrt":
+            predictability_loss = torch.sqrt(predictability_loss_raw)
+        elif self.pred_loss_transform == "identity":
+            predictability_loss = predictability_loss_raw
+        else:
+            raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
+        
+        loss_encoder_pred =  -self.pred_lamb * predictability_loss
+
+        N, D = z1.shape
+        corr = torch.einsum("bi, bj -> ij", z1, z2) / N
+        on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
+        loss_encoder = on_diag + loss_encoder_pred + class_loss
+
+        #Optimize
+        optimizer.zero_grad()
+        self.manual_backward(loss_encoder)
+        optimizer.step()
+        scheduler.step()
+
+        #Log
+        # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
+        self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, sync_dist=True)
+        self.log("cl_scaled_predictability_loss", loss_encoder_pred, on_epoch=True, sync_dist=True)
+        self.log("cl_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, sync_dist=True)
+        self.log("cl_pred_proportion", abs(loss_encoder_pred.item())/abs(on_diag.item()), on_epoch=True, sync_dist=True)
+
 
 
     def training_step(self, batch: Sequence[Any], batch_idx: int) -> torch.Tensor:
@@ -248,7 +351,6 @@ class CLNonLinPredMinv5(BaseMethod):
         Returns:
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
-        opt = self.optimizers()
         with self.profiler.profile("forward_backbone1"):
             #===== Encoder forward pass =====
             out = super().training_step(batch, batch_idx)
@@ -271,95 +373,21 @@ class CLNonLinPredMinv5(BaseMethod):
 
             embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
 
+        opt_enc, opt_pred = self.optimizers()
+        sched_enc, sched_pred = self.lr_schedulers()
+
         with self.profiler.profile("train_predictor"):
-            #===== Predictor forward and backward pass =====
-            predictor = self.hidden_predictor[0]
-            predictor_loss = 0
-            predictor_loss_raw = 0
-            
+            self.toggle_optimizer(opt_pred)
             detached_embeddings_eval = embeddings_eval.detach()
-
-            
-            mask_eval, eval_input = to_dataset(detached_embeddings_eval, self.mask_fraction)
-            predictor.eval()
-            prediction_eval = predictor(eval_input)
-            loss_eval_old = average_predictor_mse_loss(prediction_eval, detached_embeddings_eval, mask_eval).mean()
-
-            first_eval = loss_eval_old.item()
-            self.log("eval_old", first_eval)
-            count = 0
-            while count < self.max_pred_steps:
-                count += 1
-                predictor.train()
-                prediction_train = predictor(eval_input)
-                predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, detached_embeddings_eval, mask_eval).mean()
-    
-                predictor_loss = predictor_loss_raw
-                self.opt_pred.zero_grad()
-                predictor_loss.backward()
-                self.opt_pred.step()
-                # Zero again for the encoder
-                self.opt_pred.zero_grad()
-                #self.sched_pred[0].step()
-
-                predictor.eval()
-
-                prediction_eval_new = predictor(eval_input)
-                loss_eval_new = average_predictor_mse_loss(prediction_eval_new, detached_embeddings_eval, mask_eval).mean()
-                if loss_eval_new > loss_eval_old:
-                    break
-                else:
-                    loss_eval_old = loss_eval_new 
-            
-            self.log("eval_new", loss_eval_new.item())
-            self.log("eval_diff", first_eval - loss_eval_new.item())
-            self.embed_train = embeddings_eval.detach()
+            self.optimize_predictor(None, detached_embeddings_eval, opt_pred, None)
+            self.untoggle_optimizer(opt_pred)
 
         with self.profiler.profile("forward_backbone2"):
-            # ===== Encoder backward pass =====
-            # The gradients of the predictor could be reused.
-            predictor.eval()
-            mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
-            prediction_eval = predictor(eval_input)
-            #print("prediction_eval", prediction_eval)
-            predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
-            if self.pred_loss_transform == "log":   
-                predictability_loss = torch.log(predictability_loss_raw)
-            elif self.pred_loss_transform == "sqrt":
-                predictability_loss = torch.sqrt(predictability_loss_raw)
-            elif self.pred_loss_transform == "identity":
-                predictability_loss = predictability_loss_raw
-            else:
-                raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
-        
-            loss_encoder_pred =  -self.lamb * predictability_loss
-            N, D = z1_norm.shape
-            #bi,bi->i?
-            corr = torch.einsum("bi, bj -> ij", z1_norm, z2_norm) / N
-            on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
-            loss_encoder = on_diag + loss_encoder_pred + out["loss"]
-        opt.zero_grad()
-        self.manual_backward(loss_encoder)
-                
-        
-        self.log("cl_scaled_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
-        self.log("cl_predictor_loss", predictor_loss_raw, on_epoch=True, sync_dist=True)
-        self.log("cl_pred_proportion", abs(loss_encoder.item())/abs(on_diag.item()), on_epoch=True, sync_dist=True)
-        # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
-        self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, sync_dist=True)
-        self.log("cl_scaled_predictability_loss", predictability_loss, on_epoch=True, sync_dist=True)
-        self.log("cl_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
-        self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, sync_dist=True)
-        self.log("opt_pred_steps", count, sync_dist=True)
-# #This is just here for backwards compatibility
-        # self.log("eval_cl_pred_min_predictor_loss_log", torch.log(predictability_loss_raw), on_epoch=True, sync_dist=True)
-        # self.log("eval_cl_pred_min_predictor_loss_mse   ", predictability_loss_raw, on_epoch=True, sync_dist=True)
-        
-        # multiple schedulers
-        sch = self.lr_schedulers()
-        sch.step()
-        return loss_encoder
+            self.toggle_optimizer(opt_enc)
+            self.optimize_encoder(embeddings_eval, z1_norm, z2_norm, out["loss"], opt_enc, sched_enc)
+            self.untoggle_optimizer(opt_enc)
 
+        
 
 def average_predictor_mse_loss(
     predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor

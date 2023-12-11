@@ -41,6 +41,8 @@ class BarlowTwinsManual(BaseMethod):
 
         super().__init__(cfg)
 
+        self.automatic_optimization = False
+
         self.lamb: float = cfg.method_kwargs.lamb
         self.scale_loss: float = cfg.method_kwargs.scale_loss
 
@@ -117,7 +119,7 @@ class BarlowTwinsManual(BaseMethod):
             torch.Tensor: total loss composed of Barlow loss and classification loss.
         """
         optimizer = self.optimizers()
-        scheduler = self.schedulers()
+        scheduler = self.lr_schedulers()
         self.toggle_optimizer(optimizer)
         
         out = super().training_step(batch, batch_idx)
