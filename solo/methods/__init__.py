@@ -18,6 +18,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 from solo.methods.barlow_twins import BarlowTwins
+from solo.methods.barlow_twins_manual import BarlowTwinsManual
 from solo.methods.cl_lin_pred_min import CLLinPredMin
 from solo.methods.cl_non_lin_pred_min import CLNonLinPredMin
 from solo.methods.cl_non_lin_pred_minv2 import CLNonLinPredMinv2
@@ -62,6 +63,7 @@ METHODS = {
     "cl_lin_pred_min_sgd": CLLinPredMinSGD,
     "barlow_cl_lin_pred_min": BarlowCLLinPredMin,  
     "barlow_twins": BarlowTwins,
+    "barlow_twins_manual": BarlowTwinsManual,
     "byol": BYOL,
     "deepclusterv2": DeepClusterV2,
     "dino": DINO,
