@@ -235,7 +235,7 @@ class CLNonLinPredMinv5Man(BaseMethod):
         return [optimizer], [scheduler]
     
     def configure_optimizers(self) -> Tuple[List, List]:
-        enc_opt, enc_sched = self.configure_optimizers_base(self.learnable_params)
+        enc_opt, enc_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
         pred_opt, pred_sched = self.configure_optimizers_base(self.predictor.parameters())
         return enc_opt + pred_opt, enc_sched + pred_sched
 
