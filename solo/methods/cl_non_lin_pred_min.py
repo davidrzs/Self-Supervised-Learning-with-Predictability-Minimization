@@ -29,6 +29,34 @@ from solo.utils.misc import omegaconf_select
 import torch.distributed as dist
 
 
+class Predictor(nn.Module):
+    def __init__(self, feature_dim):
+        super().__init__()
+        # self.l1 = nn.Linear(feature_dim, feature_dim)
+        # self.bn1 = nn.BatchNorm1d(feature_dim)
+        # self.r1 = nn.LeakyReLU()
+        # self.l2 = nn.Linear(feature_dim, feature_dim)
+        # self.bn2 = nn.BatchNorm1d(feature_dim)
+        # self.r2 = nn.LeakyReLU()
+        self.l3 = nn.Linear(feature_dim*2, feature_dim)
+
+
+    def forward(self, x):
+        # w1 = self.bn1(self.r1(self.l1(x)))
+        # w2 = self.bn2(self.r2(self.l2(w1)))
+        # move x to same device as l3
+        x = x#.to(self.l3.weight.device)
+        return self.l3(x)
+
+class PredictorHelper:
+    def __init__(self,proj_output_dim) -> None:
+        self.proj_output_dim = proj_output_dim
+        self.predictor = Predictor(self.proj_output_dim)
+        self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters(), weight_decay=1e-3)
+        # move to cpu
+        self.predictor.to(torch.device("cuda:0"))
+      
+
 class CLNonLinPredMin(BaseMethod):
     def __init__(self, cfg: omegaconf.DictConfig):
         """Implements Barlow Twins (https://arxiv.org/abs/2103.03230)
@@ -75,8 +103,9 @@ class CLNonLinPredMin(BaseMethod):
             )
 
         # predictor
-        self.predictor = Predictor(self.proj_output_dim)
-        self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters(), weight_decay=1e-3)
+        self.predictor_helper = PredictorHelper(self.proj_output_dim)
+        #self.predictor = Predictor(self.proj_output_dim)
+        #self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters(), weight_decay=1e-3)
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
@@ -180,9 +209,10 @@ class CLNonLinPredMin(BaseMethod):
         mask_eval, eval_input = to_dataset(embeddings_eval, number_to_mask)
                                                                                 
         # get a first guess at how good the predictor is
-        self.predictor.eval() 
-        predictions = self.predictor(eval_input)
-        self.predictor.train()
+        self.predictor_helper.predictor.eval() 
+        eval_input = eval_input#.to("cpu")
+        predictions = self.predictor_helper.predictor(eval_input)
+        self.predictor_helper.predictor.train()
         prediction_loss = average_predictor_mse_loss(predictions, embeddings_eval, mask_eval)
 
         # here we train the predictor while the validation loss is still going down 
@@ -213,32 +243,103 @@ class CLNonLinPredMin(BaseMethod):
         #         break
         #     prediction_loss = prediction_loss_new
 
+        # opt_steps = 0
+        # while True:
+        #     self.predictor_helper.predictor.train()
+        #     outputs = self.predictor_helper.predictor(train_input)
+        #     predictability_loss = average_predictor_mse_loss(outputs,embeddings_train,mask_train).mean()
+        #     self.predictor_optimizer.zero_grad()
+        #     predictability_loss.backward()
+        #     self.predictor_helper.predictor_optimizer.step()
+        #     opt_steps += 1
+        #     eval_outputs = self.predictor_helper.predictor(eval_input)
+        #     new_prediction_loss = average_predictor_mse_loss(eval_outputs, embeddings_eval, mask_eval).mean()
+        #     #print(f'old:{prediction_loss} new:{new_val_loss}')
+        #     if prediction_loss <= new_prediction_loss:
+        #         prediction_loss = new_prediction_loss
+        #         break
+        #     else:
+        #         prediction_loss = new_prediction_loss
+            
+            
+
+
         opt_steps = 0
+        prediction_loss = None  # Initialize prediction_loss
+
         while True:
-            self.predictor.train()
-            outputs = self.predictor(train_input)
-            predictability_loss = average_predictor_mse_loss(outputs,embeddings_train,mask_train).mean()
-            self.predictor_optimizer.zero_grad()
+            # Ensure everything is on CPU for training
+            self.predictor_helper.predictor
+            self.predictor_helper.predictor.train()
+            initial_weights = [param.clone() for param in self.predictor_helper.predictor.parameters()]
+            
+            
+            train_input_cpu = train_input
+            embeddings_train_cpu = embeddings_train
+            mask_train_cpu = mask_train
+
+            outputs = self.predictor_helper.predictor(train_input_cpu)
+            predictability_loss = average_predictor_mse_loss(outputs, embeddings_train_cpu, mask_train_cpu).mean()
+            
+            self.predictor_helper.predictor_optimizer.zero_grad()
             predictability_loss.backward()
-            self.predictor_optimizer.step()
+
+            self.predictor_helper.predictor_optimizer.step()
             opt_steps += 1
-            eval_outputs = self.predictor(eval_input)
+            # Checking for any change in weights
+            # Checking for any change in weights and printing the difference
+            # for name, (initial, updated) in zip(self.predictor_helper.predictor.named_parameters(), zip(initial_weights, self.predictor_helper.predictor.parameters())):
+            #     if not torch.equal(initial, updated):
+            #         difference = updated - initial
+            #         print(f"Weights updated for {name}. Difference: {difference}")
+            #     else:
+            #         print(f"No significant update for {name}")
+
+            # now we move the model to the cpu and back to the gpu to enforce that the weights are updated
+            self.predictor_helper.predictor.eval()
+            # self.predictor_helper.predictor.to(torch.device("cpu"))
+            # self.predictor_helper.predictor.to(torch.device("cuda:0"))
+            
+            
+            # def init_weights(m):
+            #     if type(m) == nn.Linear or type(m) == nn.Conv2d:
+            #         nn.init.xavier_uniform_(m.weight)*1000*torch.rand(1, device=m.weight.device)
+            #         if m.bias is not None:
+            #             m.bias.data.fill_(0.01)
+
+            # self.predictor_helper.predictor.apply(init_weights)
+
+            # Evaluation
+            eval_predictor = Predictor(self.predictor_helper.proj_output_dim)
+            eval_predictor.load_state_dict(self.predictor_helper.predictor.state_dict())
+            eval_predictor.to(torch.device("cuda:0"))
+            
+            eval_outputs = eval_predictor(eval_input)
             new_prediction_loss = average_predictor_mse_loss(eval_outputs, embeddings_eval, mask_eval).mean()
-            #print(f'old:{prediction_loss} new:{new_val_loss}')
-            if prediction_loss <= new_prediction_loss:
-                prediction_loss = new_prediction_loss
+            # print first vector of eval_outputs
+            #print(eval_outputs[0])
+            
+            
+                
+            if prediction_loss is not None and prediction_loss <= new_prediction_loss or opt_steps > 50:
                 break
             else:
                 prediction_loss = new_prediction_loss
+                
+                
             
-        self.log("train_cl_pred_last_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
-        
+
+        # Move model back to GPU for further use
+
+        # Ensure to move or compute any other required tensor to GPU
+        # e.g., eval_outputs, embeddings_eval, etc., if needed for further processing.
+
+        # Logging
+        self.log("train_cl_pred_last_prediction_loss", prediction_loss.cpu(), on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_last_counter", opt_steps, on_epoch=True, sync_dist=True)
-
-        self.log("eval_cl_pred_min_predictor_loss_log", torch.log(prediction_loss), on_epoch=True, sync_dist=True)
-
-
-        last_prediction_loss = torch.log(prediction_loss)
+        self.log("eval_cl_pred_min_predictor_loss_log", torch.log(prediction_loss).cpu(), on_epoch=True, sync_dist=True)
+        self.log("train_cl_pred_last_counter_single", opt_steps,sync_dist=True)
+        print(opt_steps)
 
         # cross-correlation matrix
         c = (out_1_norm.T @ out_2_norm) / self.batch_size
@@ -251,7 +352,7 @@ class CLNonLinPredMin(BaseMethod):
         on_diag = torch.diagonal(c).add(-1).pow(2).sum()
 
         # note the minus as we try to maximize the prediction loss
-        loss = on_diag - self.lamb * (self.proj_output_dim * last_prediction_loss)
+        loss = on_diag - self.lamb * (self.proj_output_dim * prediction_loss)
 
         self.log("train_cl_pred_min_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_total_loss", loss, on_epoch=True, sync_dist=True)
@@ -286,23 +387,6 @@ def individual_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tenso
 
     return prediction_error
 
-
-class Predictor(nn.Module):
-    def __init__(self, feature_dim):
-        super().__init__()
-        # self.l1 = nn.Linear(feature_dim, feature_dim)
-        # self.bn1 = nn.BatchNorm1d(feature_dim)
-        # self.r1 = nn.LeakyReLU()
-        # self.l2 = nn.Linear(feature_dim, feature_dim)
-        # self.bn2 = nn.BatchNorm1d(feature_dim)
-        # self.r2 = nn.LeakyReLU()
-        self.l3 = nn.Linear(feature_dim*2, feature_dim)
-
-
-    def forward(self, x):
-        # w1 = self.bn1(self.r1(self.l1(x)))
-        # w2 = self.bn2(self.r2(self.l2(w1)))
-        return self.l3(x)
 
 
 
