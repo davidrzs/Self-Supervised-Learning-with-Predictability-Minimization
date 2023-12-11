@@ -275,10 +275,11 @@ class CLNonLinPredMinv5Man(BaseMethod):
             predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
             predictor_loss = predictor_loss_raw
             
-            print(f"Predictor loss: {predictor_loss.item()}")
+            print(f"Predictor loss: {predictor_loss}")
             #Optimize
             optimizer.zero_grad()
             self.manual_backward(predictor_loss)
+            self.clip_gradients(optimizer, 0.5, gradient_clip_algorithm="norm")
             print("Grad:", self.predictor.pred_layers[-1].weight.grad.sum())
             optimizer.step()
             print("Weight:", self.predictor.pred_layers[-1].weight.data.sum())
