@@ -235,8 +235,8 @@ class CLNonLinPredMinv5Man(BaseMethod):
         return [optimizer], [scheduler]
     
     def configure_optimizers(self) -> Tuple[List, List]:
-        enc_opt, enc_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
-        pred_opt, pred_sched = self.configure_optimizers_base(self.predictor.parameters())
+        enc_opt, enc_sched = self.configure_optimizers_base(self.learnable_params)
+        pred_opt, pred_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
         return enc_opt + pred_opt, enc_sched + pred_sched
 
     def optimize_predictor(self, embeddings_train: torch.Tensor, embeddings_eval: torch.Tensor, 
@@ -265,7 +265,6 @@ class CLNonLinPredMinv5Man(BaseMethod):
         self.log("eval_old", loss_eval_initial)
 
         #Train the predictor
-        optimizer.zero_grad()
         count = 0
         loss_eval_old = loss_eval_initial
 
@@ -276,10 +275,13 @@ class CLNonLinPredMinv5Man(BaseMethod):
             predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
             predictor_loss = predictor_loss_raw
             
+            print(f"Predictor loss: {predictor_loss.item()}")
             #Optimize
             optimizer.zero_grad()
             self.manual_backward(predictor_loss)
+            print("Grad:", self.predictor.pred_layers[-1].weight.grad.sum())
             optimizer.step()
+            print("Weight:", self.predictor.pred_layers[-1].weight.data.sum())
             #TODO: Consider lr sched
             if scheduler is not None:
                 scheduler.step()
@@ -288,7 +290,7 @@ class CLNonLinPredMinv5Man(BaseMethod):
             self.predictor.eval()
             prediction_eval_new = self.predictor(eval_input)
             loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
-            
+            print(f"Predictor loss new: {loss_eval_new.item()}")
             if loss_eval_new > loss_eval_old:
                 break
             else:
