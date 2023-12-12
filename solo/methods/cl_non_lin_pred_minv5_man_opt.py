@@ -98,8 +98,7 @@ class CLNonLinPredMinv5Man(BaseMethod):
         self.pred_train_type = 'same'
         if cfg.method_kwargs.pred_type == "mlp":
             self.hidden_predictor= [MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)]
-            self.hidden_predictor[0].to(self.device)
-            self.opt_pred = torch.optim.AdamW(self.hidden_predictor[0].parameters(), lr = self.pred_lr, weight_decay=1e-3)
+            
         else:
             raise ValueError(f"Predictor {cfg.method_kwargs.pred_type} not implemented")
         
@@ -237,6 +236,8 @@ class CLNonLinPredMinv5Man(BaseMethod):
         return [optimizer], [scheduler]
     
     def configure_optimizers(self) -> Tuple[List, List]:
+        self.hidden_predictor[0].to(self.device)
+        self.opt_pred = torch.optim.AdamW(self.hidden_predictor[0].parameters(), lr = self.pred_lr, weight_decay=1e-3)
         enc_opt, enc_sched = self.configure_optimizers_base(self.learnable_params)
         # pred_opt, pred_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
         return enc_opt, enc_sched
