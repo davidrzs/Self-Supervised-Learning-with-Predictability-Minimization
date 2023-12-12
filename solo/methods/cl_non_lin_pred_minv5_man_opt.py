@@ -19,6 +19,7 @@
 
 from typing import Any, List, Sequence
 
+import copy
 import omegaconf
 import torch
 import torch.nn as nn
@@ -292,6 +293,12 @@ class CLNonLinPredMinv5Man(BaseMethod):
             if scheduler is not None:
                 scheduler.step()
 
+            model_copy = copy.deepcopy(predictor)
+            self.hidden_predictor[0] = model_copy
+            predictor = model_copy
+            self.opt_pred = torch.optim.AdamW(predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
+            optimizer = self.opt_pred
+            
             #TODO: Optimize in case of same data
             predictor.eval()
             prediction_eval_new = predictor(eval_input)
