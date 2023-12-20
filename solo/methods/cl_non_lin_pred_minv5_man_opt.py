@@ -293,11 +293,13 @@ class CLNonLinPredMinv5Man(BaseMethod):
             if scheduler is not None:
                 scheduler.step()
 
-            model_copy = copy.deepcopy(predictor)
-            self.hidden_predictor[0] = model_copy
-            predictor = model_copy
-            self.opt_pred = torch.optim.AdamW(predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
-            optimizer = self.opt_pred
+            # model_copy = copy.deepcopy(predictor)
+            # self.hidden_predictor[0] = model_copy
+            # predictor = model_copy
+            # self.opt_pred = torch.optim.AdamW(predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
+            # optimizer = self.opt_pred
+            predictor.to('cpu')
+            predictor.to(self.device)
             
             #TODO: Optimize in case of same data
             predictor.eval()
