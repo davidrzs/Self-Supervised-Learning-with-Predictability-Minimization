@@ -244,14 +244,12 @@ class CLNonLinPredMinv6(BaseMethod):
         self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
         self.log("opt_pred_steps", count, sync_dist=True)
 
-    def optimize_encoder(self, embeddings_eval: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor, 
-                         class_loss:torch.Tensor, optimizer: MODULE_OPTIMIZERS, scheduler: LRSchedulerPLType):
-        predictor = self.hidden_predictor[0]
+    def optimize_encoder(self, embeddings_eval: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor):
         
         #Calculate loss
-        predictor.eval()
+        self.predictor.eval()
         mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
-        prediction_eval = predictor(eval_input)
+        prediction_eval = self.predictor(eval_input)
         predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
         
         if self.pred_loss_transform == "log":   
@@ -268,13 +266,8 @@ class CLNonLinPredMinv6(BaseMethod):
         N, D = z1.shape
         corr = torch.einsum("bi, bj -> ij", z1, z2) / N
         on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
-        loss_encoder = on_diag + loss_encoder_pred + class_loss
+        loss_encoder = on_diag + loss_encoder_pred
 
-        #Optimize
-        optimizer.zero_grad()
-        self.manual_backward(loss_encoder)
-        optimizer.step()
-        scheduler.step()
 
         #Log
         # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
@@ -283,6 +276,8 @@ class CLNonLinPredMinv6(BaseMethod):
         self.log("cl_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
         self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, sync_dist=True)
         self.log("cl_pred_proportion", abs(loss_encoder_pred.item())/abs(on_diag.item()), on_epoch=True, sync_dist=True)
+
+        return loss_encoder
 
     def training_step(self, batch: Sequence[Any], batch_idx: int) -> torch.Tensor:
         """Training step for Barlow Twins reusing BaseMethod training step.
@@ -317,9 +312,6 @@ class CLNonLinPredMinv6(BaseMethod):
 
             embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
 
-        opt_enc = self.optimizers()
-        sched_enc = self.lr_schedulers()
-
         with self.profiler.profile("train_predictor"):
             # self.toggle_optimizer(opt_pred)
             detached_embeddings_eval = embeddings_eval.detach()
@@ -333,9 +325,10 @@ class CLNonLinPredMinv6(BaseMethod):
             # self.untoggle_optimizer(opt_pred)
 
         with self.profiler.profile("forward_backbone2"):
-            self.toggle_optimizer(opt_enc)
-            self.optimize_encoder(embeddings_eval, z1_norm, z2_norm, out["loss"], opt_enc, sched_enc)
-            self.untoggle_optimizer(opt_enc)
+            # self.toggle_optimizer(opt_enc)
+            loss_encoder = self.optimize_encoder(embeddings_eval, z1_norm, z2_norm)
+            # self.untoggle_optimizer(opt_enc)
+        return loss_encoder + out["loss"]
 
         
 
