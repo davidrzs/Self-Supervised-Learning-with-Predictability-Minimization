@@ -11,8 +11,8 @@ hydra:
   run:
     dir: .
 
-name: "cl_non_lin_pred_min_manual-cifar10v5" # change here for cifar100
-method: "cl_non_lin_pred_minv5_man_opt"
+name: "cl_non_lin_pred_minv6-cifar" # change here for cifar100
+method: "cl_non_lin_pred_minv6"
 backbone:
   name: "resnet18"
 method_kwargs:
@@ -41,7 +41,7 @@ data:
   num_workers: 4
 optimizer: 
   name: "lars"
-  batch_size: 512
+  batch_size: 4096
   lr: 0.3
   classifier_lr: 0.1
   weight_decay: 1e-4
@@ -58,7 +58,7 @@ checkpoint:
 auto_resume:
   enabled: False
 # overwrite PL stuff
-max_epochs: 1000
+max_epochs: 1500
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"

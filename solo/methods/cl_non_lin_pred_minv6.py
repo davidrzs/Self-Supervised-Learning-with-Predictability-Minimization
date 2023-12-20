@@ -165,10 +165,9 @@ class CLNonLinPredMinv6(BaseMethod):
     def configure_optimizers(self) -> Tuple[List, List]:
         self.predictor.to(self.device)
         self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
-        enc_opt, enc_sched = self.configure_optimizers_base(self.learnable_params)
+        return super().configure_optimizers()
         # pred_opt, pred_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
-        return enc_opt, enc_sched
-
+       
     def optimize_predictor(self, embeddings_train: torch.Tensor, embeddings_eval: torch.Tensor, 
                            optimizer: MODULE_OPTIMIZERS, scheduler: LRSchedulerPLType = None):
         """Optimizes the predictor.
@@ -211,29 +210,28 @@ class CLNonLinPredMinv6(BaseMethod):
             predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
             predictor_loss = predictor_loss_raw
             
-            print(f"Predictor loss: {predictor_loss}")
+            #print(f"Predictor loss: {predictor_loss}")
             #Optimize
             optimizer.zero_grad()
             predictor_loss.backward()
             if self.pred_clip_grad > 0:
-                torch.nn.utils.clip_grad_norm_(predictor.parameters(), self.pred_clip_grad)
+                torch.nn.utils.clip_grad_norm_(self.predictor.parameters(), self.pred_clip_grad)
             # self.clip_gradients(optimizer, 0.5, gradient_clip_algorithm="norm")
             optimizer.step()
             #TODO: Consider lr sched
             if scheduler is not None:
                 scheduler.step()
 
-            model_copy = copy.deepcopy(predictor)
-            self.hidden_predictor[0] = model_copy
-            predictor = model_copy
-            self.opt_pred = torch.optim.AdamW(predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
+            model_copy = copy.deepcopy(self.predictor)
+            self.predictor = model_copy
+            self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
             optimizer = self.opt_pred
             
             #TODO: Optimize in case of same data
-            predictor.eval()
-            prediction_eval_new = predictor(eval_input)
+            self.predictor.eval()
+            prediction_eval_new = self.predictor(eval_input)
             loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
-            print(f"Predictor loss new: {loss_eval_new.item()}")
+            # print(f"Predictor loss new: {loss_eval_new.item()}")
             if loss_eval_new > loss_eval_old:
                 break
             else:
