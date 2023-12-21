@@ -93,10 +93,13 @@ class CLNonLinPredMinv6(BaseMethod):
         # predictor
         # TODO: Maybe improve opt
         self.pred_train_embed = None
-        self.pred_lr = cfg.method_kwargs.pred_lr
         self.max_pred_steps = cfg.method_kwargs.max_pred_steps
         self.pred_train_type = cfg.method_kwargs.pred_train_type
         self.pred_clip_grad = cfg.method_kwargs.pred_clip_grad
+        self.pred_lr = cfg.method_kwargs.pred_lr_init
+        self.pred_weight_decay = cfg.method_kwargs.pred_weight_decay
+        self.pred_lr_update = 1.5
+        self.pred_steps_target = cfg.method_kwargs.pred_steps_target
         if cfg.method_kwargs.pred_type == "mlp":
             self.predictor= MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)
         else:
@@ -164,7 +167,7 @@ class CLNonLinPredMinv6(BaseMethod):
  
     def configure_optimizers(self) -> Tuple[List, List]:
         self.predictor.to(self.device)
-        self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
+        self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=self.pred_weight_decay)
         return super().configure_optimizers()
         # pred_opt, pred_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
        
@@ -224,7 +227,7 @@ class CLNonLinPredMinv6(BaseMethod):
 
             model_copy = copy.deepcopy(self.predictor)
             self.predictor = model_copy
-            self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
+            self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=self.pred_weight_decay)
             optimizer = self.opt_pred
             
             #TODO: Optimize in case of same data
@@ -237,6 +240,12 @@ class CLNonLinPredMinv6(BaseMethod):
             else:
                 loss_eval_old = loss_eval_new 
 
+        if count > self.pred_steps_target:
+            self.pred_lr *= self.pred_lr_update
+        else:
+            self.pred_lr /= self.pred_lr_update
+
+        self.log("pred_lr", self.pred_lr)
         self.log("eval_new", loss_eval_new)
         self.log("eval_diff", loss_eval_initial - loss_eval_new)
         self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
