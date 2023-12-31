@@ -223,18 +223,16 @@ def main(cfg: DictConfig):
     # we only want to pass in valid Trainer args, the rest may be user specific
     valid_kwargs = inspect.signature(Trainer.__init__).parameters
     trainer_kwargs = {name: trainer_kwargs[name] for name in valid_kwargs if name in trainer_kwargs}
-    #callbacks.append(ModelSummary(max_depth=1))
 
     trainer_kwargs.update(
         {
             "logger": wandb_logger if cfg.wandb.enabled else None,
             "callbacks": callbacks,
             "enable_checkpointing": False,
-            "strategy": DDPStrategy(find_unused_parameters=True)
+            "strategy": DDPStrategy(find_unused_parameters=False)
             if cfg.strategy == "ddp"
             else cfg.strategy,
             "profiler": profiler,
-            #"enable_model_summary": True,
         }
     )
     trainer = Trainer(**trainer_kwargs)

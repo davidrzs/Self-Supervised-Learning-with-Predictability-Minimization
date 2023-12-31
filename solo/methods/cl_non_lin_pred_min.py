@@ -29,24 +29,26 @@ from solo.utils.misc import omegaconf_select
 import torch.distributed as dist
 
 
+
+
 class Predictor(nn.Module):
     def __init__(self, feature_dim):
         super().__init__()
-        # self.l1 = nn.Linear(feature_dim, feature_dim)
-        # self.bn1 = nn.BatchNorm1d(feature_dim)
-        # self.r1 = nn.LeakyReLU()
+        self.l1 = nn.Linear(feature_dim*2, feature_dim)
+        self.bn1 = nn.BatchNorm1d(feature_dim)
+        self.r1 = nn.LeakyReLU()
         # self.l2 = nn.Linear(feature_dim, feature_dim)
         # self.bn2 = nn.BatchNorm1d(feature_dim)
         # self.r2 = nn.LeakyReLU()
-        self.l3 = nn.Linear(feature_dim*2, feature_dim)
+        self.feature_dim = feature_dim
+        self.l3 = nn.Linear(feature_dim, feature_dim)
 
 
     def forward(self, x):
-        # w1 = self.bn1(self.r1(self.l1(x)))
-        # w2 = self.bn2(self.r2(self.l2(w1)))
-        # move x to same device as l3
-        x = x#.to(self.l3.weight.device)
-        return self.l3(x)
+        w1 = (self.r1(self.l1(x)))
+        return self.l3(w1)
+    
+
 
 class PredictorHelper:
     def __init__(self,proj_output_dim) -> None:
@@ -69,6 +71,8 @@ class CLNonLinPredMin(BaseMethod):
         """
 
         super().__init__(cfg)
+        #self.automatic_optimization = False
+
 
         self.lamb: float = cfg.method_kwargs.lamb
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
@@ -103,9 +107,9 @@ class CLNonLinPredMin(BaseMethod):
             )
 
         # predictor
-        self.predictor_helper = PredictorHelper(self.proj_output_dim)
-        #self.predictor = Predictor(self.proj_output_dim)
-        #self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters(), weight_decay=1e-3)
+        #self.predictor_helper = PredictorHelper(self.proj_output_dim)
+        self.predictor = Predictor(self.proj_output_dim)
+        self.predictor_optimizer = torch.optim.AdamW(self.predictor.parameters(), weight_decay=1e-3)
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
@@ -189,17 +193,10 @@ class CLNonLinPredMin(BaseMethod):
         embeddings_eval = torch.concat((out_1_norm[batch_size//2:], out_2_norm[batch_size//2:]), 0)
         
 
-
         number_to_mask = int(self.proj_output_dim * self.mask_fraction)
 
         batch_size, embedding_dimension = out_1_norm.shape
 
-        # masked_indices_eval = (torch.rand(batch_size, embedding_dimension, device=embeddings_eval.device) < (
-        #             number_to_mask / embedding_dimension))
-
-        # masked_embeddings_eval = (~masked_indices_eval) * embeddings_eval
-
-        
         
       
         
@@ -209,126 +206,63 @@ class CLNonLinPredMin(BaseMethod):
         mask_eval, eval_input = to_dataset(embeddings_eval, number_to_mask)
                                                                                 
         # get a first guess at how good the predictor is
-        self.predictor_helper.predictor.eval() 
-        eval_input = eval_input#.to("cpu")
-        predictions = self.predictor_helper.predictor(eval_input)
-        self.predictor_helper.predictor.train()
+        self.predictor.eval() 
+        predictions = self.predictor.forward(eval_input)
+        self.predictor.train()
         prediction_loss = average_predictor_mse_loss(predictions, embeddings_eval, mask_eval)
 
         # here we train the predictor while the validation loss is still going down 
         self.log("train_cl_pred_first_prediction_loss", prediction_loss, on_epoch=True, sync_dist=True)
-        
-        # # this emulates a do-while loop
-        # counter = 0
-        # while True:
-        #     counter += 1
-            
-        #     masked_indices_train = (torch.rand(batch_size, embedding_dimension, device=embeddings_train.device) < (
-        #             number_to_mask / embedding_dimension))
-        #     masked_embeddings_train = (~masked_indices_train) * embeddings_train
-
-        #     # train for one round:
-        #     self.predictor_optimizer.zero_grad()
-        #     predictions = self.predictor(masked_embeddings_train)
-        #     prediction_loss_train = average_predictor_mse_loss(predictions, embeddings_train, masked_indices_train)
-        #     prediction_loss_train.backward()
-        #     self.predictor_optimizer.step()
-        #     self.predictor_optimizer.zero_grad()
-        #     self.predictor.eval() 
-        #     predictions = self.predictor(masked_embeddings_eval)
-        #     prediction_loss_new = average_predictor_mse_loss(predictions, embeddings_eval, masked_indices_eval)
-        #     self.predictor.train()
-        #     if (prediction_loss_new >= prediction_loss).item() or counter > 50:
-        #         prediction_loss = prediction_loss_new
-        #         break
-        #     prediction_loss = prediction_loss_new
-
-        # opt_steps = 0
-        # while True:
-        #     self.predictor_helper.predictor.train()
-        #     outputs = self.predictor_helper.predictor(train_input)
-        #     predictability_loss = average_predictor_mse_loss(outputs,embeddings_train,mask_train).mean()
-        #     self.predictor_optimizer.zero_grad()
-        #     predictability_loss.backward()
-        #     self.predictor_helper.predictor_optimizer.step()
-        #     opt_steps += 1
-        #     eval_outputs = self.predictor_helper.predictor(eval_input)
-        #     new_prediction_loss = average_predictor_mse_loss(eval_outputs, embeddings_eval, mask_eval).mean()
-        #     #print(f'old:{prediction_loss} new:{new_val_loss}')
-        #     if prediction_loss <= new_prediction_loss:
-        #         prediction_loss = new_prediction_loss
-        #         break
-        #     else:
-        #         prediction_loss = new_prediction_loss
-            
             
 
 
         opt_steps = 0
-        prediction_loss = None  # Initialize prediction_loss
+
+        global_model = self.predictor
 
         while True:
-            # Ensure everything is on CPU for training
-            self.predictor_helper.predictor
-            self.predictor_helper.predictor.train()
-            initial_weights = [param.clone() for param in self.predictor_helper.predictor.parameters()]
-            
-            
-            train_input_cpu = train_input
-            embeddings_train_cpu = embeddings_train
-            mask_train_cpu = mask_train
 
-            outputs = self.predictor_helper.predictor(train_input_cpu)
-            predictability_loss = average_predictor_mse_loss(outputs, embeddings_train_cpu, mask_train_cpu).mean()
+            global_model.train()
+            outputs = global_model(train_input)
+            predictability_loss = average_predictor_mse_loss(outputs, embeddings_train, mask_train).mean()
             
-            self.predictor_helper.predictor_optimizer.zero_grad()
+            self.predictor_optimizer.zero_grad()
             predictability_loss.backward()
 
-            self.predictor_helper.predictor_optimizer.step()
+            self.predictor_optimizer.step()
             opt_steps += 1
-            # Checking for any change in weights
-            # Checking for any change in weights and printing the difference
-            # for name, (initial, updated) in zip(self.predictor_helper.predictor.named_parameters(), zip(initial_weights, self.predictor_helper.predictor.parameters())):
-            #     if not torch.equal(initial, updated):
-            #         difference = updated - initial
-            #         print(f"Weights updated for {name}. Difference: {difference}")
-            #     else:
-            #         print(f"No significant update for {name}")
-
-            # now we move the model to the cpu and back to the gpu to enforce that the weights are updated
-            self.predictor_helper.predictor.eval()
-            # self.predictor_helper.predictor.to(torch.device("cpu"))
-            # self.predictor_helper.predictor.to(torch.device("cuda:0"))
+          
+            global_model.eval()
             
-            
-            # def init_weights(m):
-            #     if type(m) == nn.Linear or type(m) == nn.Conv2d:
-            #         nn.init.xavier_uniform_(m.weight)*1000*torch.rand(1, device=m.weight.device)
-            #         if m.bias is not None:
-            #             m.bias.data.fill_(0.01)
+            # here we exchange the predictor by a copy
+            #import copy
+            # self.predictor_helper.predictor = copy.deepcopy(self.predictor_helper.predictor)
+            # Instantiate your original model and move it to GPU
 
-            # self.predictor_helper.predictor.apply(init_weights)
+            # # Create a new instance of the model (with the same architecture)
+            copied_model = global_model#Predictor(global_model.feature_dim).cuda()
 
-            # Evaluation
-            eval_predictor = Predictor(self.predictor_helper.proj_output_dim)
-            eval_predictor.load_state_dict(self.predictor_helper.predictor.state_dict())
-            eval_predictor.to(torch.device("cuda:0"))
+            # # state_dict of the original model into copied model
             
-            eval_outputs = eval_predictor(eval_input)
+            #copied_model.load_state_dict(copy.deepcopy(global_model.state_dict()))
+            
+            # # Move the copied model to GPU
+            #copied_model = copied_model.to('cuda')
+            
+
+
+            eval_outputs = copied_model.forward(eval_input)
+            #global_model = copied_model
             new_prediction_loss = average_predictor_mse_loss(eval_outputs, embeddings_eval, mask_eval).mean()
-            # print first vector of eval_outputs
-            #print(eval_outputs[0])
-            
-            
-                
-            if prediction_loss is not None and prediction_loss <= new_prediction_loss or opt_steps > 50:
+            print(new_prediction_loss, prediction_loss, opt_steps)
+            if prediction_loss is not None and prediction_loss < new_prediction_loss or opt_steps > 200:
                 break
             else:
                 prediction_loss = new_prediction_loss
                 
                 
             
-
+        print(opt_steps)
         # Move model back to GPU for further use
 
         # Ensure to move or compute any other required tensor to GPU
