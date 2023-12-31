@@ -52,7 +52,8 @@ class CLNonLinPredMin(BaseMethod):
         self.predictor_batch_norm : bool = cfg.method_kwargs.predictor_batch_norm
         self.predictor_num_hidden_layers : int = cfg.method_kwargs.predictor_num_hidden_layers
 
-
+        self.val_is_train : bool = cfg.method_kwargs.val_is_train
+        
         # projector
 
         if cfg.method_kwargs.proj_size == 1:
@@ -157,12 +158,17 @@ class CLNonLinPredMin(BaseMethod):
         out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
         out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
 
-        # embeddings = torch.cat((out_1_norm, out_2_norm), 0)
 
-        # here we split the embeddings into train and test (first half of out_1_norm & out_2_norm is train, second half is test)
-        embeddings_train = torch.concat((out_1_norm[:batch_size//2], out_2_norm[:batch_size//2]), 0).clone().detach()
-        embeddings_eval = torch.concat((out_1_norm[batch_size//2:], out_2_norm[batch_size//2:]), 0)
-        
+        if self.val_is_train:
+            embeddings = torch.cat((out_1_norm, out_2_norm), 0)
+            embeddings_train = embeddings.clone().detach()
+            embeddings_eval = embeddings
+            
+        else:
+            # here we split the embeddings into train and test (first half of out_1_norm & out_2_norm is train, second half is test)
+            embeddings_train = torch.concat((out_1_norm[:batch_size//2], out_2_norm[:batch_size//2]), 0).clone().detach()
+            embeddings_eval = torch.concat((out_1_norm[batch_size//2:], out_2_norm[batch_size//2:]), 0)
+            
 
 
         number_to_mask = int(self.proj_output_dim * self.mask_fraction)
@@ -185,7 +191,6 @@ class CLNonLinPredMin(BaseMethod):
 
         opt_steps = 0
     
-
         while True:
 
             self.predictor.train()
