@@ -22,6 +22,8 @@ method_kwargs:
   lamb: 0.005
   ridge_lambd: 0
   proj_size: 3
+  predictor_batch_norm: False
+  predictor_num_hidden_layers: 0
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
@@ -52,4 +54,4 @@ devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 16-mixed
+precision: 32
