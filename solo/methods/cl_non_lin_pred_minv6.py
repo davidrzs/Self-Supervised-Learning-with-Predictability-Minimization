@@ -99,6 +99,7 @@ class CLNonLinPredMinv6(BaseMethod):
         self.pred_lr = cfg.method_kwargs.pred_lr_init
         self.pred_weight_decay = cfg.method_kwargs.pred_weight_decay
         self.pred_lr_update = 1.5
+        self.patience = cfg.method_kwargs.patience
         self.pred_steps_target = cfg.method_kwargs.pred_steps_target
         if cfg.method_kwargs.pred_type == "mlp":
             self.predictor= MLPPredictor(feature_dim = self.proj_output_dim, **cfg.method_kwargs.pred_kwargs)
@@ -202,9 +203,10 @@ class CLNonLinPredMinv6(BaseMethod):
 
         #Train the predictor
         count = 0
+        last_improved = 0
         loss_eval_old = loss_eval_initial
 
-        while count < self.max_pred_steps:
+        while count < self.max_pred_steps and last_improved <= self.patience:
             count += 1
             if 'random' in self.pred_train_type:
                 mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
@@ -236,16 +238,21 @@ class CLNonLinPredMinv6(BaseMethod):
             loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
             # print(f"Predictor loss new: {loss_eval_new.item()}")
             if loss_eval_new > loss_eval_old:
-                break
+                last_improved += 1
             else:
                 loss_eval_old = loss_eval_new 
-
+                last_improved = 0
         if count > self.pred_steps_target:
-            self.pred_lr *= self.pred_lr_update
+#            print("\n\nPre:", self.pred_lr)
+            self.pred_lr = self.pred_lr * self.pred_lr_update
+#            print("Increased lr to", self.pred_lr, self.pred_lr_update)
         else:
-            self.pred_lr /= self.pred_lr_update
+#            print("\n\nPre:", self.pred_lr)
+            self.pred_lr = self.pred_lr / self.pred_lr_update
+#            print("Decreased lr to", self.pred_lr, self.pred_lr_update)
+        self.pred_lr = max(self.pred_lr, 1e-5)
 
-        self.log("pred_lr", self.pred_lr)
+        self.log("pred_lr", self.pred_lr, sync_dist=True)
         self.log("eval_new", loss_eval_new)
         self.log("eval_diff", loss_eval_initial - loss_eval_new)
         self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)

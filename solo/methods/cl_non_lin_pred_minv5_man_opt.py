@@ -238,7 +238,7 @@ class CLNonLinPredMinv5Man(BaseMethod):
     
     def configure_optimizers(self) -> Tuple[List, List]:
         self.hidden_predictor[0].to(self.device)
-        self.opt_pred = torch.optim.AdamW(self.hidden_predictor[0].parameters(), lr = self.pred_lr, weight_decay=1e-3)
+        self.opt_pred = torch.optim.AdamW(self.hidden_predictor[0].parameters(), lr = self.pred_lr, weight_decay=0)
         enc_opt, enc_sched = self.configure_optimizers_base(self.learnable_params)
         # pred_opt, pred_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
         return enc_opt, enc_sched
@@ -280,32 +280,32 @@ class CLNonLinPredMinv5Man(BaseMethod):
             predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
             predictor_loss = predictor_loss_raw
             
-            print(f"Predictor loss: {predictor_loss}")
+            # print(f"Predictor loss: {predictor_loss}")
             #Optimize
             optimizer.zero_grad()
             predictor_loss.backward()
             # torch.nn.utils.clip_grad_norm_(predictor.parameters(), 0.5)
             # self.clip_gradients(optimizer, 0.5, gradient_clip_algorithm="norm")
-            print("Grad:", predictor.pred_layers[-1].weight.grad.sum())
+            # print("Grad:", predictor.pred_layers[-1].weight.grad.sum())
             optimizer.step()
-            print("Weight:", predictor.pred_layers[-1].weight.data.sum())
+            # print("Weight:", predictor.pred_layers[-1].weight.data.sum())
             #TODO: Consider lr sched
             if scheduler is not None:
                 scheduler.step()
 
-            # model_copy = copy.deepcopy(predictor)
-            # self.hidden_predictor[0] = model_copy
-            # predictor = model_copy
-            # self.opt_pred = torch.optim.AdamW(predictor.parameters(), lr = self.pred_lr, weight_decay=1e-3)
-            # optimizer = self.opt_pred
-            predictor.to('cpu')
-            predictor.to(self.device)
+            model_copy = copy.deepcopy(predictor)
+            self.hidden_predictor[0] = model_copy
+            predictor = model_copy
+            self.opt_pred = torch.optim.AdamW(predictor.parameters(), lr = self.pred_lr, weight_decay=0)
+            optimizer = self.opt_pred
+            # predictor.to('cpu')
+            # predictor.to(self.device)
             
             #TODO: Optimize in case of same data
             predictor.eval()
             prediction_eval_new = predictor(eval_input)
             loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
-            print(f"Predictor loss new: {loss_eval_new.item()}")
+            # print(f"Predictor loss new: {loss_eval_new.item()}")
             if loss_eval_new > loss_eval_old:
                 break
             else:
