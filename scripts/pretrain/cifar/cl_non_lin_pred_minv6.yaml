@@ -20,21 +20,22 @@ method_kwargs:
   proj_output_dim: 128
   mask_fraction: 0.5
   lamb: .1
-  pred_lamb: 1
+  pred_lamb: 2
   proj_size: 3
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
-  pred_loss_transform: "identity" #[log, sqrt, identity]
+  pred_loss_transform: "log" #[log, sqrt, identity]
   max_pred_steps: 200
   pred_weight_decay: 1e-6
   pred_lr_init: 1e-3
   pred_steps_target: 25
-  pred_train_type: 'overfit'
-  pred_clip_grad: -1
+  pred_train_type: 'split_random'
+  pred_clip_grad: 0.5
+  patience: 1
   pred_kwargs:
-    layers: 1
+    layers: 2
     hidden_dim: 128
-    activation: "tanh" # [relu, tanh]
+    activation: "relu" # [relu, tanh]
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
