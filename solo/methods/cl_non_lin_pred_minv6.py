@@ -227,15 +227,17 @@ class CLNonLinPredMinv6(BaseMethod):
             if scheduler is not None:
                 scheduler.step()
 
-            model_copy = copy.deepcopy(self.predictor)
-            self.predictor = model_copy
-            self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=self.pred_weight_decay)
-            optimizer = self.opt_pred
+            # model_copy = copy.deepcopy(self.predictor)
+            # self.predictor = model_copy
+            # self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=self.pred_weight_decay)
+            # optimizer = self.opt_pred
             
             #TODO: Optimize in case of same data
             self.predictor.eval()
             prediction_eval_new = self.predictor(eval_input)
             loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
+            if loss_eval_new == loss_eval_old:
+                print("Losses are equal after", count, "steps")
             # print(f"Predictor loss new: {loss_eval_new.item()}")
             if loss_eval_new > loss_eval_old:
                 last_improved += 1
