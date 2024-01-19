@@ -66,6 +66,11 @@ def main(cfg: DictConfig):
     OmegaConf.set_struct(cfg, False)
     cfg = parse_cfg(cfg)
 
+    #Undo the scaling of the learning rate that happens in parse_cfg
+    scale_factor = cfg.optimizer.batch_size * len(cfg.devices) * cfg.num_nodes / 256
+    cfg.optimizer.lr = cfg.optimizer.lr / scale_factor
+    cfg.optimizer.classifier_lr = cfg.optimizer.classifier_lr / scale_factor
+
     seed_everything(cfg.seed)
 
     assert cfg.method in METHODS, f"Choose from {METHODS.keys()}"
@@ -221,7 +226,6 @@ def main(cfg: DictConfig):
         callbacks.append(lr_monitor)
 
     trainer_kwargs = OmegaConf.to_container(cfg)
-    print(trainer_kwargs.optimizer.lr)
     # we only want to pass in valid Trainer args, the rest may be user specific
     valid_kwargs = inspect.signature(Trainer.__init__).parameters
     trainer_kwargs = {name: trainer_kwargs[name] for name in valid_kwargs if name in trainer_kwargs}
