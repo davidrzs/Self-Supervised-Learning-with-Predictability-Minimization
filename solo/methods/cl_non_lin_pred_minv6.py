@@ -68,6 +68,7 @@ class CLNonLinPredMinv6(BaseMethod):
         super().__init__(cfg)
         self.lamb: float = cfg.method_kwargs.lamb
         self.pred_lamb: float = cfg.method_kwargs.pred_lamb
+        self.clip_pred_loss: float = cfg.method_kwargs.clip_pred_loss
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
         self.embed_train = None
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
@@ -126,6 +127,7 @@ class CLNonLinPredMinv6(BaseMethod):
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.norm_type")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_loss_transform")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_lamb")
+        assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.clip_pred_loss")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_lr")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.max_pred_steps")
 
@@ -173,7 +175,7 @@ class CLNonLinPredMinv6(BaseMethod):
         # pred_opt, pred_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
        
     def optimize_predictor(self, embeddings_train: torch.Tensor, embeddings_eval: torch.Tensor, 
-                           optimizer: MODULE_OPTIMIZERS, scheduler: LRSchedulerPLType = None):
+                           optimizer: MODULE_OPTIMIZERS):
         """Optimizes the predictor.
 
         Args:
@@ -181,7 +183,7 @@ class CLNonLinPredMinv6(BaseMethod):
             embeddings_eval (torch.Tensor): embeddings to evaluate the predictor on.
             optimizer (MODULE_OPTIMIZERS): optimizer to use for the predictor.
         Returns:
-            float: predictor loss.
+            None
         """
         #Prepare data
         mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
@@ -199,7 +201,6 @@ class CLNonLinPredMinv6(BaseMethod):
         self.predictor.eval()
         prediction_eval = self.predictor(eval_input)
         loss_eval_initial = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
-        self.log("eval_old", loss_eval_initial)
 
         #Train the predictor
         count = 0
@@ -212,10 +213,8 @@ class CLNonLinPredMinv6(BaseMethod):
                 mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
             self.predictor.train()
             prediction_train = self.predictor(train_input)
-            predictor_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
-            predictor_loss = predictor_loss_raw
+            predictor_loss =  average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
             
-            #print(f"Predictor loss: {predictor_loss}")
             #Optimize
             optimizer.zero_grad()
             predictor_loss.backward()
@@ -223,51 +222,55 @@ class CLNonLinPredMinv6(BaseMethod):
                 torch.nn.utils.clip_grad_norm_(self.predictor.parameters(), self.pred_clip_grad)
             # self.clip_gradients(optimizer, 0.5, gradient_clip_algorithm="norm")
             optimizer.step()
-            #TODO: Consider lr sched
-            if scheduler is not None:
-                scheduler.step()
-
-            # model_copy = copy.deepcopy(self.predictor)
-            # self.predictor = model_copy
-            # self.opt_pred = torch.optim.AdamW(self.predictor.parameters(), lr = self.pred_lr, weight_decay=self.pred_weight_decay)
-            # optimizer = self.opt_pred
             
             #TODO: Optimize in case of same data
             self.predictor.eval()
             prediction_eval_new = self.predictor(eval_input)
             loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
-            if loss_eval_new == loss_eval_old:
-                print("Losses are equal after", count, "steps")
-            # print(f"Predictor loss new: {loss_eval_new.item()}")
+            
+            # Update values to track patience
             if loss_eval_new > loss_eval_old:
                 last_improved += 1
             else:
                 loss_eval_old = loss_eval_new 
                 last_improved = 0
-        if count > self.pred_steps_target:
-#            print("\n\nPre:", self.pred_lr)
-            self.pred_lr = self.pred_lr * self.pred_lr_update
-#            print("Increased lr to", self.pred_lr, self.pred_lr_update)
-        else:
-#            print("\n\nPre:", self.pred_lr)
-            self.pred_lr = self.pred_lr / self.pred_lr_update
-#            print("Decreased lr to", self.pred_lr, self.pred_lr_update)
-        self.pred_lr = max(self.pred_lr, 1e-5)
 
-        self.log("pred_lr", self.pred_lr, sync_dist=True)
-        self.log("eval_new", loss_eval_new)
-        self.log("eval_diff", loss_eval_initial - loss_eval_new)
-        self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
-        self.log("opt_pred_steps", count, sync_dist=True)
+        #  Update learning rate of predictor optimizer
+        if count > self.pred_steps_target:
+            self.pred_lr = self.pred_lr * self.pred_lr_update
+        else:
+            self.pred_lr = self.pred_lr / self.pred_lr_update
+        
+        self.pred_lr = min(max(self.pred_lr, 1e-5), 1e-1)
+        optimizer.param_groups[0]['lr'] = self.pred_lr
+
+        self.log("eval_old", loss_eval_initial, on_step=False, on_epoch=True)
+        self.log("pred_lr", self.pred_lr, on_step=False, on_epoch=True)
+        self.log("eval_new", loss_eval_new, on_step=False, on_epoch=True)
+        self.log("eval_diff", loss_eval_initial - loss_eval_new, on_step=False, on_epoch=True)
+        self.log("cl_predictor_loss", predictor_loss, on_step=False, on_epoch=True)
+        self.log("opt_pred_steps", count, on_step=False, on_epoch=True)
 
     def optimize_encoder(self, embeddings_eval: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor):
+        """Optimizes the encoder.
         
+        Args:
+            embeddings_eval (torch.Tensor): embeddings to evaluate the predictor on.
+            z1 (torch.Tensor): embeddings from transformation 1
+            z2 (torch.Tensor): embeddings from transformation 2
+        Returns:
+            loss_encoder (torch.Tensor): total loss composed of Barlow loss and classification loss.
+        """
+
         #Calculate loss
         self.predictor.eval()
         mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
         prediction_eval = self.predictor(eval_input)
-        predictability_loss_raw = self.proj_output_dim * average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+        predictability_loss_raw = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
         
+        if self.clip_pred_loss>0:
+            predictability_loss_raw = torch.clamp(predictability_loss_raw, max=self.clip_pred_loss)
+
         if self.pred_loss_transform == "log":   
             predictability_loss = torch.log(predictability_loss_raw)
         elif self.pred_loss_transform == "sqrt":
@@ -287,11 +290,11 @@ class CLNonLinPredMinv6(BaseMethod):
 
         #Log
         # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
-        self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, sync_dist=True)
-        self.log("cl_scaled_predictability_loss", loss_encoder_pred, on_epoch=True, sync_dist=True)
-        self.log("cl_on_diag_loss", on_diag, on_epoch=True, sync_dist=True)
-        self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, sync_dist=True)
-        self.log("cl_pred_proportion", abs(loss_encoder_pred.item())/abs(on_diag.item()), on_epoch=True, sync_dist=True)
+        self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, on_step=False)
+        self.log("cl_scaled_transformed_predictability_loss", loss_encoder_pred, on_epoch=True, on_step=False)
+        self.log("cl_on_diag_loss", on_diag, on_epoch=True, on_step=False)
+        self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, on_step=False)
+        self.log("cl_pred_over_diag", abs(loss_encoder_pred.detach()/on_diag.detach()), on_epoch=True, on_step=False)
 
         return loss_encoder
 
@@ -329,7 +332,6 @@ class CLNonLinPredMinv6(BaseMethod):
             embeddings_eval = torch.cat((z1_norm, z2_norm), dim=0)
 
         with self.profiler.profile("train_predictor"):
-            # self.toggle_optimizer(opt_pred)
             detached_embeddings_eval = embeddings_eval.detach()
             if 'split' in self.pred_train_type:
                 pred_embed_train = detached_embeddings_eval[:detached_embeddings_eval.shape[0]//2]
@@ -337,17 +339,13 @@ class CLNonLinPredMinv6(BaseMethod):
             else:
                 pred_embed_train = detached_embeddings_eval
                 pred_embed_eval = detached_embeddings_eval
-            self.optimize_predictor(pred_embed_train, pred_embed_eval, self.opt_pred, None)
-            # self.untoggle_optimizer(opt_pred)
+            self.optimize_predictor(pred_embed_train, pred_embed_eval, self.opt_pred)
 
         with self.profiler.profile("forward_backbone2"):
-            # self.toggle_optimizer(opt_enc)
             loss_encoder = self.optimize_encoder(embeddings_eval, z1_norm, z2_norm)
-            # self.untoggle_optimizer(opt_enc)
         return loss_encoder + out["loss"]
 
         
-
 def average_predictor_mse_loss(
     predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor
 ):
@@ -360,18 +358,6 @@ def average_predictor_mse_loss(
 
     return prediction_error
 
-
-
-# def individual_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor):
-#     assert predictions.shape == labels.shape
-
-#     diff_square = torch.square(predictions - labels)
-#     reconstruction = index_mask * diff_square
-
-#     # case that we divide by zero extremely unlikely
-#     prediction_error = reconstruction.sum(dim=0) / reconstruction.count_nonzero(dim=0)
-
-#     return prediction_error
 
 class MLPPredictor(nn.Module):
     def __init__(self, feature_dim , hidden_dim=512, layers=3, activation="relu"):
@@ -402,29 +388,6 @@ class MLPPredictor(nn.Module):
         return x
 
 
-
-# def validate_predictor(predictability_net, args, input, true_output, masked_indices):
-#     # predictability_net.eval()
-#     val_outputs = predictability_net(input.cuda(non_blocking=True))
-#     prediction_loss = average_predictor_mse_loss(val_outputs.cuda(non_blocking=True), true_output.cuda(non_blocking=True), masked_indices.cuda(non_blocking=True)).mean()
-#     # del val_outputs
-#     return prediction_loss
-
-
-
-# class WidePredictor(nn.Module):
-#     def __init__(self, feature_dim):
-#         super().__init__()
-#         self.l1 = nn.Linear(feature_dim*2, feature_dim*2*10)
-#         self.bn1 = nn.BatchNorm1d(feature_dim*2*10)
-#         self.r1 = nn.ReLU()
-#         self.l2 = nn.Linear(feature_dim*2*10, feature_dim)
-
-#     def forward(self, x):
-#         w1 = self.bn1(self.r1(self.l1(x)))
-#         return self.l2(w1)
-
-
 def to_dataset(embeddings, masking_fraction):
     batch_size, embedding_dimension = embeddings.shape
     ret_arr = torch.zeros(batch_size, 2*embedding_dimension,device=embeddings.device)
@@ -438,70 +401,3 @@ def to_dataset(embeddings, masking_fraction):
     ret_arr[:, embedding_dimension:].masked_fill_(masked_indices, 1)
 
     return masked_indices, ret_arr
-
-
-# def individual_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor):
-#     assert predictions.shape == labels.shape
-
-#     diff_square = torch.square(predictions - labels)
-#     reconstruction = index_mask * diff_square
-
-#     # case that we divide by zero extremely unlikely
-#     prediction_error = reconstruction.sum(dim=0) / reconstruction.count_nonzero(dim=0)
-
-#     return prediction_error
-
-
-# def average_predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor):
-#     assert predictions.shape == labels.shape
-
-#     diff_square = torch.square(predictions - labels)
-
-#     only_prediction = torch.masked_select(diff_square, index_mask)
-#     prediction_error = torch.mean(only_prediction)
-
-#     return prediction_error
-
-
-# def predictor_mse_loss(predictions: torch.Tensor, labels: torch.Tensor, index_mask: torch.Tensor, gamma: float,
-#                        theta: float):
-#     """
-#     :param logger: if we pass a logger we will log the losses
-#     :param predictions: the LOO predictions of our network
-#     :param labels: the original embedding
-#     :param index_mask: the indices we are masking
-#     :param gamma: weight weighting error of masked error in sum with non-masked reconstruction error
-#     :return: the loss as a tensor
-#     """
-#     # print(f' predictions.shape {predictions.shape}, labels.shape {labels.shape}')
-#     assert predictions.shape == labels.shape
-#     # print(f'{index_mask}')
-#     # number_of_batches = predictions.shape[0]
-#     # number_of_elements_in_batch = predictions.shape[1]
-
-#     # get the squared difference of our neural networks output and the original labels
-#     diff_square = torch.square(predictions - labels)
-#     # print(diff_square.mean())
-#     # now we must calculate the two parts - the reconstruction error and the prediction error
-#     only_reconstruction = torch.masked_select(diff_square, torch.logical_not(index_mask))
-
-#     # recall that mask returns a one dimensional flattened tensor
-#     reconstruction_error = torch.mean(only_reconstruction)
-
-#     only_prediction = torch.masked_select(diff_square,index_mask)
-#     prediction_error = torch.mean(only_prediction)
-
-#     # in the unlikely case that all were selected or non were selected
-#     # TODO assumes we are running on a nvidia card
-#     if prediction_error.isnan():
-#         prediction_error = torch.tensor(0).cuda()
-
-#     if reconstruction_error.isnan():
-#         reconstruction_error = torch.tensor(0).cuda()
-
-#     total_loss = theta*prediction_error + gamma*reconstruction_error
-
-#     del prediction_error, reconstruction_error, only_prediction, only_reconstruction
-
-#     return total_loss
-

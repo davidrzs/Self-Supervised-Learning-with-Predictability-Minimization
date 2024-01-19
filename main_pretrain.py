@@ -74,7 +74,7 @@ def main(cfg: DictConfig):
         assert cfg.method in ["wmse", "mae"]
 
     profiler = SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile")
-    if cfg.method in ["cl_non_lin_pred_minv3"]:
+    if cfg.method in ["cl_non_lin_pred_minv3", "cl_non_lin_pred_minv6"]:
         model = METHODS[cfg.method](cfg, profiler=profiler)
     else:
         model = METHODS[cfg.method](cfg)
@@ -213,6 +213,7 @@ def main(cfg: DictConfig):
             id=wandb_run_id,
         )
         wandb_logger.watch(model, log="gradients", log_freq=100)
+
         wandb_logger.log_hyperparams(OmegaConf.to_container(cfg))
 
         # lr logging
@@ -220,6 +221,7 @@ def main(cfg: DictConfig):
         callbacks.append(lr_monitor)
 
     trainer_kwargs = OmegaConf.to_container(cfg)
+    print(trainer_kwargs.optimizer.lr)
     # we only want to pass in valid Trainer args, the rest may be user specific
     valid_kwargs = inspect.signature(Trainer.__init__).parameters
     trainer_kwargs = {name: trainer_kwargs[name] for name in valid_kwargs if name in trainer_kwargs}
