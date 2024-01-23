@@ -236,10 +236,11 @@ class CLNonLinPredMinv6(BaseMethod):
                 last_improved = 0
 
         #  Update learning rate of predictor optimizer
-        if count > self.pred_steps_target:
-            self.pred_lr = self.pred_lr * self.pred_lr_update
-        else:
-            self.pred_lr = self.pred_lr / self.pred_lr_update
+        if self.pred_steps_target > 0:
+            if count > self.pred_steps_target:
+                self.pred_lr = self.pred_lr * self.pred_lr_update
+            else:
+                self.pred_lr = self.pred_lr / self.pred_lr_update
         
         self.pred_lr = min(max(self.pred_lr, 1e-5), 1e-1)
         optimizer.param_groups[0]['lr'] = self.pred_lr
