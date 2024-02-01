@@ -20,19 +20,19 @@ method_kwargs:
   proj_output_dim: 128
   mask_fraction: 0.5
   lamb: .1
-  pred_lamb: 0.05
+  pred_lamb: 0.5
   proj_size: 3
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
-  pred_loss_transform: "identity" #[log, sqrt, identity]
-  max_pred_steps: 50
+  pred_loss_transform: "log" #[log, sqrt, identity]
+  max_pred_steps: 500
   pred_weight_decay: 1e-6
   pred_lr_init: 1e-3
   pred_steps_target: 25
   pred_train_type: 'split_random'
   pred_clip_grad: 0.0
-  clip_pred_loss: 0.0
-  patience: 2
+  clip_pred_loss: 1.0
+  patience: 1
   pred_kwargs:
     layers: 2
     hidden_dim: 128
@@ -62,7 +62,7 @@ checkpoint:
 auto_resume:
   enabled: False
 # overwrite PL stuff
-max_epochs: 1500
+max_epochs: 1000
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"

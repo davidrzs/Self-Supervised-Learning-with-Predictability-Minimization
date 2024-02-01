@@ -99,7 +99,7 @@ class CLNonLinPredMinv6(BaseMethod):
         self.pred_clip_grad = cfg.method_kwargs.pred_clip_grad
         self.pred_lr = cfg.method_kwargs.pred_lr_init
         self.pred_weight_decay = cfg.method_kwargs.pred_weight_decay
-        self.pred_lr_update = 1.5
+        self.pred_lr_update = 1.005
         self.patience = cfg.method_kwargs.patience
         self.pred_steps_target = cfg.method_kwargs.pred_steps_target
         if cfg.method_kwargs.pred_type == "mlp":
