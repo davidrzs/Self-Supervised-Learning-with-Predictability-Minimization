@@ -29,7 +29,7 @@ method_kwargs:
   pred_weight_decay: 1e-6
   pred_lr_init: 1e-3
   pred_steps_target: 25
-  pred_train_type: 'split_random'
+  pred_train_type: 'random'
   pred_clip_grad: 0.0
   clip_pred_loss: 1.0
   patience: 1
@@ -68,3 +68,4 @@ sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
 precision: 32
+seed: 0
