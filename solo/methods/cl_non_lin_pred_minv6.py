@@ -75,6 +75,7 @@ class CLNonLinPredMinv6(BaseMethod):
         self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
         self.profiler = profiler or PassThroughProfiler()
         self.pred_loss_transform = cfg.method_kwargs.pred_loss_transform
+        self.pred_eval_steps = cfg.method_kwargs.pred_eval_steps
         self.norm_type = cfg.method_kwargs.norm_type
         # projector
         proj_layers = nn.ModuleList()
@@ -265,23 +266,28 @@ class CLNonLinPredMinv6(BaseMethod):
 
         #Calculate loss
         self.predictor.eval()
-        mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
-        prediction_eval = self.predictor(eval_input)
-        predictability_loss_raw = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
-        
-        if self.clip_pred_loss>0:
-            predictability_loss_raw = torch.clamp(predictability_loss_raw, max=self.clip_pred_loss)
+        loss_encoder_pred = torch.tensor(0.0, device=embeddings_eval.device, requires_grad=True, dtype=embeddings_eval.dtype)
+        for _ in range(self.pred_eval_steps):
+            mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
+            prediction_eval = self.predictor(eval_input)
+            predictability_loss_raw = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+            
+            if self.clip_pred_loss>0:
+                predictability_loss_raw = torch.clamp(predictability_loss_raw, max=self.clip_pred_loss)
 
-        if self.pred_loss_transform == "log":   
-            predictability_loss = torch.log(predictability_loss_raw)
-        elif self.pred_loss_transform == "sqrt":
-            predictability_loss = torch.sqrt(predictability_loss_raw)
-        elif self.pred_loss_transform == "identity":
-            predictability_loss = predictability_loss_raw
-        else:
-            raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
-        
-        loss_encoder_pred =  -self.pred_lamb * predictability_loss
+            if self.pred_loss_transform == "log":   
+                predictability_loss = torch.log(predictability_loss_raw)
+            elif self.pred_loss_transform == "sqrt":
+                predictability_loss = torch.sqrt(predictability_loss_raw)
+            elif self.pred_loss_transform == "identity":
+                predictability_loss = predictability_loss_raw
+            else:
+                raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
+            loss_encoder_pred += predictability_loss
+        #Average over steps
+        loss_encoder_pred =  loss_encoder_pred / self.pred_eval_steps
+        #Scale
+        loss_encoder_pred =  -self.pred_lamb * loss_encoder_pred
 
         N, D = z1.shape
         corr = torch.einsum("bi, bj -> ij", z1, z2) / N

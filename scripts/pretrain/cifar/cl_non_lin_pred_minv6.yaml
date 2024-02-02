@@ -31,6 +31,7 @@ method_kwargs:
   pred_steps_target: 25
   pred_train_type: 'random'
   pred_clip_grad: 0.0
+  pred_eval_steps: 10
   clip_pred_loss: 1.0
   patience: 1
   pred_kwargs:
