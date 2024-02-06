@@ -379,10 +379,13 @@ def average_predictor_mse_loss(
 
 
 class MLPPredictor(nn.Module):
-    def __init__(self, feature_dim , hidden_dim=512, layers=3, activation="relu"):
+    def __init__(self, feature_dim , hidden_dim=512, layers=3, activation="relu", k=2):
         super().__init__()
         self.pred_layers = nn.ModuleList()
-        cur_in_dim = feature_dim*2
+        block_dim = feature_dim // k
+        assert feature_dim % k == 0
+        cur_in_dim = block_dim * (k-1)
+
         for _ in range(layers - 1):
             self.pred_layers.append(nn.Linear(cur_in_dim, hidden_dim))
             self.pred_layers.append(nn.BatchNorm1d(hidden_dim))
@@ -395,7 +398,7 @@ class MLPPredictor(nn.Module):
 
             cur_in_dim = hidden_dim
 
-        self.pred_layers.append(nn.Linear(cur_in_dim, feature_dim))
+        self.pred_layers.append(nn.Linear(cur_in_dim, block_dim))
 
     def forward(self, x):
         # print("Input:",x.requires_grad, x)
