@@ -46,7 +46,7 @@ def static_lr(
         lrs[idx] = lr
     return lrs
 
-class CLNonLinPredMinv6(BaseMethod):
+class CLNonLinPredMinv4(BaseMethod):
     def __init__(self, cfg: omegaconf.DictConfig, profiler: SimpleProfiler = None):
         """Implements Barlow Twins (https://arxiv.org/abs/2103.03230)
 
@@ -123,7 +123,7 @@ class CLNonLinPredMinv6(BaseMethod):
             omegaconf.DictConfig: same as the argument, used to avoid errors.
         """
         #TODO: Add warnings for missing parameters
-        cfg = super(CLNonLinPredMinv6, CLNonLinPredMinv6).add_and_assert_specific_cfg(cfg)
+        cfg = super(CLNonLinPredMinv4, CLNonLinPredMinv4).add_and_assert_specific_cfg(cfg)
         
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.lamb")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_type")
@@ -174,7 +174,7 @@ class CLNonLinPredMinv6(BaseMethod):
  
     def configure_optimizers(self) -> Tuple[List, List]:
         self.predictors.to(self.device)
-        self.opts_pred = [torch.optim.SGD(self.predictors[i].parameters(), lr = self.pred_lr, weight_decay=self.pred_weight_decay) for i in range(self.k)]
+        self.opts_pred = [torch.optim.AdamW(self.predictors[i].parameters(), lr = self.pred_lr, weight_decay=self.pred_weight_decay) for i in range(self.k)]
         return super().configure_optimizers()
         # pred_opt, pred_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
        

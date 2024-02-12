@@ -5,10 +5,10 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --output=/home/maotth/log/%j.out     # where to store the output (%j is the JOBID), subdirectory "log" must exist
 #SBATCH --error=/home/maotth/log/%j.err  # where to store error messages
-#CommentSBATCH --exclude=tikgpu01,tikgpu02,tikgpu03,tikgpu04
-#CommentSBATCH --constraint='geforce_rtx_3090|rtx_a6000'
+#CommentSBATCH --exclude=tikgpu08,tikgpu10
+#SBATCH --constraint='geforce_rtx_3090|rtx_a6000'
 #CommentSBATCH --nodelist=tikgpu09
-# #SBATCH --exclude=tikgpu08,tikgpu09,tikgpu10
+#SBATCH --dependency=afterany:818382
 
 #a100_80gb geforce_gtx_titan_x geforce_rtx_2080_ti geforce_rtx_3090 rtx_a6000 tesla_v100 titan_rtx titan_xp
 # Send some noteworthy information to the output log

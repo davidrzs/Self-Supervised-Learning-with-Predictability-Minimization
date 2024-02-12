@@ -176,7 +176,7 @@ class CLNonLinPredMinv6(BaseMethod):
         # pred_opt, pred_sched = self.configure_optimizers_base([{"name": "predictor", "params": self.predictor.parameters()}])
        
     def optimize_predictor(self, embeddings_train: torch.Tensor, embeddings_eval: torch.Tensor, 
-                           optimizer: MODULE_OPTIMIZERS):
+                           optimizer: MODULE_OPTIMIZERS, mask_eval: torch.Tensor, eval_input: torch.Tensor):
         """Optimizes the predictor.
 
         Args:
@@ -187,7 +187,7 @@ class CLNonLinPredMinv6(BaseMethod):
             None
         """
         #Prepare data
-        mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
+        #mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
         if self.pred_train_type == 'overfit':
             mask_train, train_input = mask_eval, eval_input
         elif self.pred_train_type == 'split_overfit':
@@ -246,14 +246,14 @@ class CLNonLinPredMinv6(BaseMethod):
         self.pred_lr = min(max(self.pred_lr, 1e-5), 1e-1)
         optimizer.param_groups[0]['lr'] = self.pred_lr
 
-        self.log("eval_old", loss_eval_initial, on_step=False, on_epoch=True)
-        self.log("pred_lr", self.pred_lr, on_step=False, on_epoch=True)
-        self.log("eval_new", loss_eval_new, on_step=False, on_epoch=True)
-        self.log("eval_diff", loss_eval_initial - loss_eval_new, on_step=False, on_epoch=True)
-        self.log("cl_predictor_loss", predictor_loss, on_step=False, on_epoch=True)
-        self.log("opt_pred_steps", count, on_step=False, on_epoch=True)
+        self.log("eval_old", loss_eval_initial, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("pred_lr", self.pred_lr, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("eval_new", loss_eval_new, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("eval_diff", loss_eval_initial - loss_eval_new, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("cl_predictor_loss", predictor_loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log("opt_pred_steps", count, on_step=False, on_epoch=True, sync_dist=True)
 
-    def optimize_encoder(self, embeddings_eval: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor):
+    def optimize_encoder(self, embeddings_eval: torch.Tensor, z1: torch.Tensor, z2: torch.Tensor, mask_eval, eval_input):
         """Optimizes the encoder.
         
         Args:
@@ -267,8 +267,9 @@ class CLNonLinPredMinv6(BaseMethod):
         #Calculate loss
         self.predictor.eval()
         loss_encoder_pred = torch.tensor(0.0, device=embeddings_eval.device, requires_grad=True, dtype=embeddings_eval.dtype)
-        for _ in range(self.pred_eval_steps):
-            mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
+        for i in range(self.pred_eval_steps):
+            if i>0:
+                mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
             prediction_eval = self.predictor(eval_input)
             predictability_loss_raw = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
             
@@ -283,7 +284,7 @@ class CLNonLinPredMinv6(BaseMethod):
                 predictability_loss = predictability_loss_raw
             else:
                 raise ValueError(f"Transform {self.pred_loss_transform} not implemented")
-            loss_encoder_pred += predictability_loss
+            loss_encoder_pred = loss_encoder_pred + predictability_loss
         #Average over steps
         loss_encoder_pred =  loss_encoder_pred / self.pred_eval_steps
         #Scale
@@ -297,11 +298,11 @@ class CLNonLinPredMinv6(BaseMethod):
 
         #Log
         # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
-        self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, on_step=False)
-        self.log("cl_scaled_transformed_predictability_loss", loss_encoder_pred, on_epoch=True, on_step=False)
-        self.log("cl_on_diag_loss", on_diag, on_epoch=True, on_step=False)
-        self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, on_step=False)
-        self.log("cl_pred_over_diag", abs(loss_encoder_pred.detach()/on_diag.detach()), on_epoch=True, on_step=False)
+        self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("cl_scaled_transformed_predictability_loss", loss_encoder_pred, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("cl_on_diag_loss", on_diag, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, on_step=False, sync_dist=True)
+        self.log("cl_pred_over_diag", abs(loss_encoder_pred.detach()/on_diag.detach()), on_epoch=True, on_step=False, sync_dist=True)
 
         return loss_encoder
 
@@ -340,16 +341,17 @@ class CLNonLinPredMinv6(BaseMethod):
 
         with self.profiler.profile("train_predictor"):
             detached_embeddings_eval = embeddings_eval.detach()
+            mask_eval, eval_input = to_dataset(detached_embeddings_eval, self.mask_fraction)
             if 'split' in self.pred_train_type:
                 pred_embed_train = detached_embeddings_eval[:detached_embeddings_eval.shape[0]//2]
                 pred_embed_eval = detached_embeddings_eval[detached_embeddings_eval.shape[0]//2:] 
             else:
                 pred_embed_train = detached_embeddings_eval
                 pred_embed_eval = detached_embeddings_eval
-            self.optimize_predictor(pred_embed_train, pred_embed_eval, self.opt_pred)
+            self.optimize_predictor(pred_embed_train, pred_embed_eval, self.opt_pred, mask_eval, eval_input)
 
         with self.profiler.profile("forward_backbone2"):
-            loss_encoder = self.optimize_encoder(embeddings_eval, z1_norm, z2_norm)
+            loss_encoder = self.optimize_encoder(embeddings_eval, z1_norm, z2_norm, mask_eval, eval_input)
         return loss_encoder + out["loss"]
 
         
