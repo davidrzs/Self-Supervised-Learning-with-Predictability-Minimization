@@ -286,10 +286,19 @@ class CLNonLinPredMinv4(BaseMethod):
         loss_encoder_pred =  -self.pred_lamb * predictability_loss
 
         N, D = z1.shape
-        corr = torch.einsum("bi, bj -> ij", z1, z2) / N
-        on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
-        loss_encoder = on_diag + loss_encoder_pred
+        lin_loss = torch.tensor(0.0, device=embeddings_eval.device, requires_grad=True)
+        on_diag = 0
+        for i,predictor in enumerate(self.predictors):
+            corr = torch.einsum("bi, bj -> ij", z1[:,i*self.group_size:(i+1)*self.group_size], z2[:,i*self.group_size:(i+1)*self.group_size]) / N
+            diag = torch.eye(self.group_size, device=corr.device)
+            cdif = (corr - diag).pow(2)
+            cdif[~diag.bool()] *= self.lamb
+            lin_loss = lin_loss +  cdif.sum()
+            on_diag += torch.diagonal(cdif).sum().item()
 
+
+        
+        loss_encoder = lin_loss + loss_encoder_pred
 
         #Log
         # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
