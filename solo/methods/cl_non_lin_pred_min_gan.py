@@ -201,7 +201,7 @@ class CLNonLinPredMinGAN(BaseMethod):
         #Do a first eval step
         self.predictor.eval()
         prediction_eval = self.predictor(eval_input)
-        loss_eval_initial = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+        loss_eval_initial = average_predictor_bce_loss(prediction_eval, mask_eval).mean()
 
         #Train the predictor
         count = 0
@@ -214,7 +214,7 @@ class CLNonLinPredMinGAN(BaseMethod):
                 mask_train, train_input = to_dataset(embeddings_train, self.mask_fraction)
             self.predictor.train()
             prediction_train = self.predictor(train_input)
-            predictor_loss =  average_predictor_mse_loss(prediction_train, embeddings_train, mask_train).mean()
+            predictor_loss =  average_predictor_bce_loss(prediction_train, mask_train).mean()
             
             #Optimize
             optimizer.zero_grad()
@@ -227,7 +227,7 @@ class CLNonLinPredMinGAN(BaseMethod):
             #TODO: Optimize in case of same data
             self.predictor.eval()
             prediction_eval_new = self.predictor(eval_input)
-            loss_eval_new = average_predictor_mse_loss(prediction_eval_new, embeddings_eval, mask_eval).mean()
+            loss_eval_new = average_predictor_bce_loss(prediction_eval_new, mask_eval).mean()
             
             # Update values to track patience
             if loss_eval_new > loss_eval_old:
@@ -271,7 +271,7 @@ class CLNonLinPredMinGAN(BaseMethod):
             if i>0:
                 mask_eval, eval_input = to_dataset(embeddings_eval, self.mask_fraction)
             prediction_eval = self.predictor(eval_input)
-            predictability_loss_raw = average_predictor_mse_loss(prediction_eval, embeddings_eval, mask_eval).mean()
+            predictability_loss_raw = average_predictor_bce_loss(prediction_eval, mask_eval).mean()
             
             if self.clip_pred_loss>0:
                 predictability_loss_raw = torch.clamp(predictability_loss_raw, max=self.clip_pred_loss)
@@ -367,6 +367,12 @@ def average_predictor_mse_loss(
 
     return prediction_error
 
+def average_predictor_bce_loss(
+    predictions: torch.Tensor, index_mask: torch.Tensor
+):
+    assert predictions.shape == index_mask.shape
+    prediction_error = F.binary_cross_entropy(predictions, index_mask, reduction="mean")
+    return prediction_error
 
 class MLPPredictor(nn.Module):
     def __init__(self, feature_dim , hidden_dim=512, layers=3, activation="relu"):
@@ -386,6 +392,7 @@ class MLPPredictor(nn.Module):
             cur_in_dim = hidden_dim
 
         self.pred_layers.append(nn.Linear(cur_in_dim, feature_dim))
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         # print("Input:",x.requires_grad, x)
@@ -393,7 +400,7 @@ class MLPPredictor(nn.Module):
             x = layer(x)
             # print("layer:",layer.weight)
             # print("output:",x.requires_grad, x)
-            
+        x = self.sigmoid(x)    
         return x
 
 
