@@ -403,6 +403,6 @@ def to_dataset(embeddings, masking_fraction):
     masked_indices = torch.rand(batch_size, embedding_dimension,device=embeddings.device) < (masking_fraction)
 
     # copy over first half of input
-    ret_arr.masked_fill(~masked_indices, embeddings)
+    ret_arr[~masked_indices] = embeddings[~masked_indices]
 
     return masked_indices, ret_arr
