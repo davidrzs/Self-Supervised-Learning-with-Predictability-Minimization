@@ -67,6 +67,7 @@ class CLNonLinPredMinv4(BaseMethod):
         
         super().__init__(cfg)
         self.lamb: float = cfg.method_kwargs.lamb
+        self.lin_lamb: float = cfg.method_kwargs.lin_lamb
         self.pred_lamb: float = cfg.method_kwargs.pred_lamb
         self.clip_pred_loss: float = cfg.method_kwargs.clip_pred_loss
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
@@ -124,7 +125,7 @@ class CLNonLinPredMinv4(BaseMethod):
         """
         #TODO: Add warnings for missing parameters
         cfg = super(CLNonLinPredMinv4, CLNonLinPredMinv4).add_and_assert_specific_cfg(cfg)
-        
+        assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.lin_lamb")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.lamb")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_type")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_kwargs")
@@ -264,12 +265,13 @@ class CLNonLinPredMinv4(BaseMethod):
 
         #Calculate loss
         predictability_loss_raw = torch.tensor(0.0, device=embeddings_eval.device, requires_grad=True, dtype=embeddings_eval.dtype)
-        for idx in range(self.k):
-            predictor = self.predictors[idx]
-            predictor.eval()
-            prediction_eval = predictor(torch.cat((embeddings_eval[:,:idx*self.group_size],embeddings_eval[:,(idx+1)*self.group_size:]), dim=1))
-            predictability_loss_raw_step = (prediction_eval - embeddings_eval[:,idx*self.group_size:(idx+1)*self.group_size]).pow(2).mean()
-            predictability_loss_raw = predictability_loss_raw + predictability_loss_raw_step / self.k
+        if self.k > 1:
+            for idx in range(self.k):
+                predictor = self.predictors[idx]
+                predictor.eval()
+                prediction_eval = predictor(torch.cat((embeddings_eval[:,:idx*self.group_size],embeddings_eval[:,(idx+1)*self.group_size:]), dim=1))
+                predictability_loss_raw_step = (prediction_eval - embeddings_eval[:,idx*self.group_size:(idx+1)*self.group_size]).pow(2).mean()
+                predictability_loss_raw = predictability_loss_raw + predictability_loss_raw_step / self.k
 
         if self.clip_pred_loss>0:
             predictability_loss_raw = torch.clamp(predictability_loss_raw, max=self.clip_pred_loss)
@@ -298,15 +300,16 @@ class CLNonLinPredMinv4(BaseMethod):
 
 
         
-        loss_encoder = lin_loss + loss_encoder_pred
+        loss_encoder = self.lin_lamb * lin_loss + loss_encoder_pred
 
         #Log
         # self.log("cl_predictor_loss", predictor_loss, on_epoch=True, sync_dist=True)
         self.log("cl_predictability_loss", predictability_loss_raw, on_epoch=True, on_step=False)
         self.log("cl_scaled_transformed_predictability_loss", loss_encoder_pred, on_epoch=True, on_step=False)
+        self.log("cl_lin_loss", lin_loss, on_epoch=True, on_step=False)
         self.log("cl_on_diag_loss", on_diag, on_epoch=True, on_step=False)
         self.log("train_cl_pred_min_total_loss", loss_encoder, on_epoch=True, on_step=False)
-        self.log("cl_pred_over_diag", abs(loss_encoder_pred.detach()/on_diag.detach()), on_epoch=True, on_step=False)
+        self.log("cl_pred_over_diag", abs(loss_encoder_pred.detach()/on_diag), on_epoch=True, on_step=False)
 
         return loss_encoder
 
@@ -360,11 +363,12 @@ class CLNonLinPredMinv4(BaseMethod):
             else:
                 raise ValueError(f"Predictor train type {self.pred_train_type} not implemented")
             #Train all k predictors separately
-            for idx in range(self.k):
-                metrics = self.optimize_predictor(pred_embed_train, pred_embed_eval, self.opts_pred[idx], self.predictors[idx], idx)
-                for key, value in metrics.items():
-                    #Aggregate metrics
-                    metric_summary[key] += value
+            if self.k > 1:
+                for idx in range(self.k):
+                    metrics = self.optimize_predictor(pred_embed_train, pred_embed_eval, self.opts_pred[idx], self.predictors[idx], idx)
+                    for key, value in metrics.items():
+                        #Aggregate metrics
+                        metric_summary[key] += value
             #Log values
             for key, value in metric_summary.items():
                 self.log(f"{key}", value/self.k, on_epoch=True, on_step=False, sync_dist=True)

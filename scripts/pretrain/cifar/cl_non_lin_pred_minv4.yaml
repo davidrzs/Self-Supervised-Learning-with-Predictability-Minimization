@@ -19,8 +19,9 @@ method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
   mask_fraction: 0.5
-  lamb: .1
-  pred_lamb: 0.5
+  lamb: 0.1
+  pred_lamb: 2
+  lin_lamb: 1
   proj_size: 3
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
