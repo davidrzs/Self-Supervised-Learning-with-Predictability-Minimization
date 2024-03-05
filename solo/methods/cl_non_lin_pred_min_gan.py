@@ -46,7 +46,7 @@ def static_lr(
         lrs[idx] = lr
     return lrs
 
-class CLNonLinPredMinv6(BaseMethod):
+class CLNonLinPredMinGAN(BaseMethod):
     def __init__(self, cfg: omegaconf.DictConfig, profiler: SimpleProfiler = None):
         """Implements Barlow Twins (https://arxiv.org/abs/2103.03230)
 
@@ -120,7 +120,7 @@ class CLNonLinPredMinv6(BaseMethod):
             omegaconf.DictConfig: same as the argument, used to avoid errors.
         """
         #TODO: Add warnings for missing parameters
-        cfg = super(CLNonLinPredMinv6, CLNonLinPredMinv6).add_and_assert_specific_cfg(cfg)
+        cfg = super(CLNonLinPredMinGAN, CLNonLinPredMinGAN).add_and_assert_specific_cfg(cfg)
         
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.lamb")
         assert not omegaconf.OmegaConf.is_missing(cfg, "method_kwargs.pred_type")
