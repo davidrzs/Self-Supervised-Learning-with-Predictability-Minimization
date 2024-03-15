@@ -68,6 +68,7 @@ class CLNonLinPredMinGAN(BaseMethod):
         super().__init__(cfg)
         self.lamb: float = cfg.method_kwargs.lamb
         self.pred_lamb: float = cfg.method_kwargs.pred_lamb
+        self.off_lamb: float = cfg.method_kwargs.off_lamb
         self.clip_pred_loss: float = cfg.method_kwargs.clip_pred_loss
         self.mask_fraction : float = cfg.method_kwargs.mask_fraction
         self.embed_train = None
@@ -292,8 +293,11 @@ class CLNonLinPredMinGAN(BaseMethod):
 
         N, D = z1.shape
         corr = torch.einsum("bi, bj -> ij", z1, z2) / N
+        diag = torch.eye(D, device=corr.device)
+        cdif = (corr - diag).pow(2)
+        cdif[~diag.bool()] *= self.off_lamb
         on_diag = torch.diagonal(corr).add(-1).pow(2).sum()
-        loss_encoder = on_diag + loss_encoder_pred
+        loss_encoder = cdif.sum() + loss_encoder_pred
 
 
         #Log
@@ -371,7 +375,7 @@ def average_predictor_bce_loss(
     predictions: torch.Tensor, index_mask: torch.Tensor
 ):
     assert predictions.shape == index_mask.shape
-    prediction_error = F.binary_cross_entropy(predictions, index_mask, reduction="mean")
+    prediction_error = F.binary_cross_entropy(predictions, index_mask.float(), reduction="mean")
     return prediction_error
 
 class MLPPredictor(nn.Module):

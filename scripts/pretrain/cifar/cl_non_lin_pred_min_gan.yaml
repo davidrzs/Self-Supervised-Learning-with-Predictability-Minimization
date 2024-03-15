@@ -21,6 +21,7 @@ method_kwargs:
   mask_fraction: 0.5
   lamb: .1
   pred_lamb: 0.5
+  off_lamb: 0
   proj_size: 3
   pred_type: "mlp"  # [mlp]
   norm_type: "standardize"   # [l2, standardize, both]
