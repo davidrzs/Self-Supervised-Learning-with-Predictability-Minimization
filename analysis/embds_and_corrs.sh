@@ -31,37 +31,51 @@ echo Copying done
 #####################
 #    CIFAR-10
 #####################
-
-# THE CLPM-GAN ONES
+# The CLPM-Fold ONES
 python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/07fx76z3 \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/07fx76z3/cl_non_lin_pred_min_gan-cifar-07fx76z3-ep=999.ckpt
-
-
-python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/2a282f09 \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/2a282f09/cl_non_lin_pred_min_gan-cifar-2a282f09-ep=999.ckpt
+--pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv4/5q928iom \
+--pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv4/5q928iom/cl_non_lin_pred_minv4-cifar-5q928iom-ep=999.ckpt
 
 
 python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/d8k8ptah \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/d8k8ptah/cl_non_lin_pred_min_gan-cifar-d8k8ptah-ep=999.ckpt
-
-
-# THE CLPM-Opt ONES
-python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/xtq8vx5x \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/xtq8vx5x/cl_non_lin_pred_minv6-cifar-xtq8vx5x-ep=999.ckpt
+--pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv4/lof0xo67 \
+--pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv4/lof0xo67/cl_non_lin_pred_minv4-cifar-lof0xo67-ep=999.ckpt
 
 
 python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/szaxictv \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/szaxictv/cl_non_lin_pred_minv6-cifar-szaxictv-ep=999.ckpt
+--pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv4/16zy824w \
+--pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv4/16zy824w/cl_non_lin_pred_minv4-cifar-16zy824w-ep=999.ckpt
+
+# # THE CLPM-GAN ONES
+# python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/07fx76z3 \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/07fx76z3/cl_non_lin_pred_min_gan-cifar-07fx76z3-ep=999.ckpt
 
 
-python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/a03i1bo8 \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/a03i1bo8/cl_non_lin_pred_minv6-cifar-a03i1bo8-ep=999.ckpt
+# python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/2a282f09 \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/2a282f09/cl_non_lin_pred_min_gan-cifar-2a282f09-ep=999.ckpt
+
+
+# python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/d8k8ptah \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/d8k8ptah/cl_non_lin_pred_min_gan-cifar-d8k8ptah-ep=999.ckpt
+
+
+# # THE CLPM-Opt ONES
+# python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/xtq8vx5x \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/xtq8vx5x/cl_non_lin_pred_minv6-cifar-xtq8vx5x-ep=999.ckpt
+
+
+# python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/szaxictv \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/szaxictv/cl_non_lin_pred_minv6-cifar-szaxictv-ep=999.ckpt
+
+
+# python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/a03i1bo8 \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/a03i1bo8/cl_non_lin_pred_minv6-cifar-a03i1bo8-ep=999.ckpt
 
 
 # THE CLPM-REG ONES
@@ -151,37 +165,51 @@ python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16   
 #    CIFAR-100
 #####################
 
-
-# THE CLPM-GAN ONES
+# THE CLPM-FOLD ONES
 python -m pipenv run python main_corr.py  --dataset cifar100   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/b861omg1 \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/b861omg1/cl_non_lin_pred_min_gan-cifar100-b861omg1-ep=999.ckpt
-
-
-python -m pipenv run python main_corr.py  --dataset cifar100   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/oiolks2e \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/oiolks2e/cl_non_lin_pred_min_gan-cifar100-oiolks2e-ep=999.ckpt
-
-
-python -m pipenv run python main_corr.py  --dataset cifar100   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/tv8myt6j \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/tv8myt6j/cl_non_lin_pred_min_gan-cifar100-tv8myt6j-ep=999.ckpt
-
-
-# THE CLPM-Opt ONES
-python -m pipenv run python main_corr.py  --dataset cifar100   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/0k74mj23 \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/0k74mj23/cl_non_lin_pred_minv6-cifar100-0k74mj23-ep=999.ckpt
+--pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/qkqxeyrg \
+--pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/qkqxeyrg/cl_non_lin_pred_minv6-cifar100-qkqxeyrg-ep=999.ckpt
 
 
 python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/7ao96clq \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/7ao96clq/cl_non_lin_pred_minv6-cifar100-7ao96clq-ep=999.ckpt
+--pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/6mh52nl1 \
+--pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/6mh52nl1/cl_non_lin_pred_minv6-cifar100-6mh52nl1-ep=999.ckpt
 
 
 python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
---pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/vsdqcduo \
---pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/vsdqcduo/cl_non_lin_pred_minv6-cifar100-vsdqcduo-ep=999.ckpt
+--pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/3j581xwa \
+--pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/3j581xwa/cl_non_lin_pred_minv6-cifar100-3j581xwa-ep=999.ckpt
+
+# # THE CLPM-GAN ONES
+# python -m pipenv run python main_corr.py  --dataset cifar100   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/b861omg1 \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/b861omg1/cl_non_lin_pred_min_gan-cifar100-b861omg1-ep=999.ckpt
+
+
+# python -m pipenv run python main_corr.py  --dataset cifar100   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/oiolks2e \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/oiolks2e/cl_non_lin_pred_min_gan-cifar100-oiolks2e-ep=999.ckpt
+
+
+# python -m pipenv run python main_corr.py  --dataset cifar100   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/tv8myt6j \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_min_gan/tv8myt6j/cl_non_lin_pred_min_gan-cifar100-tv8myt6j-ep=999.ckpt
+
+
+# # THE CLPM-Opt ONES
+# python -m pipenv run python main_corr.py  --dataset cifar100   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/0k74mj23 \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/0k74mj23/cl_non_lin_pred_minv6-cifar100-0k74mj23-ep=999.ckpt
+
+
+# python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/7ao96clq \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/7ao96clq/cl_non_lin_pred_minv6-cifar100-7ao96clq-ep=999.ckpt
+
+
+# python -m pipenv run python main_corr.py  --dataset cifar10   --batch_size 16    --num_workers 10  --train_data_path "./datasets" --val_data_path "./datasets" \
+# --pretrained_checkpoint_dir /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/vsdqcduo \
+# --pretrained_checkpoint /itet-stor/maotth/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/trained_models/cl_non_lin_pred_minv6/vsdqcduo/cl_non_lin_pred_minv6-cifar100-vsdqcduo-ep=999.ckpt
 
 
 # THE CLPM-REG ONES
