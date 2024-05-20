@@ -19,13 +19,15 @@
 
 import inspect
 import os
+import logging
+
+from torch import nn
 
 import hydra
 import torch
 from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning import Trainer, seed_everything
-from pytorch_lightning.profilers import SimpleProfiler
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelSummary
+from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies.ddp import DDPStrategy
 
@@ -42,6 +44,8 @@ from solo.methods import METHODS
 from solo.utils.auto_resumer import AutoResumer
 from solo.utils.checkpointer import Checkpointer
 from solo.utils.misc import make_contiguous, omegaconf_select
+from solo.methods.base import BaseMethod
+
 
 try:
     from solo.data.dali_dataloader import PretrainDALIDataModule, build_transform_pipeline_dali
@@ -66,11 +70,6 @@ def main(cfg: DictConfig):
     OmegaConf.set_struct(cfg, False)
     cfg = parse_cfg(cfg)
 
-    #Undo the scaling of the learning rate that happens in parse_cfg
-    scale_factor = cfg.optimizer.batch_size * len(cfg.devices) * cfg.num_nodes / 256
-    cfg.optimizer.lr = cfg.optimizer.lr / scale_factor
-    cfg.optimizer.classifier_lr = cfg.optimizer.classifier_lr / scale_factor
-
     seed_everything(cfg.seed)
 
     assert cfg.method in METHODS, f"Choose from {METHODS.keys()}"
@@ -78,15 +77,54 @@ def main(cfg: DictConfig):
     if cfg.data.num_large_crops != 2:
         assert cfg.method in ["wmse", "mae"]
 
-    profiler = SimpleProfiler(dirpath=os.path.join(".", "profiles", cfg.name), filename="profile")
-    if cfg.method in ["cl_non_lin_pred_minv3", "cl_non_lin_pred_minv6"]:
-        model = METHODS[cfg.method](cfg, profiler=profiler)
-    else:
-        model = METHODS[cfg.method](cfg)
+
+
+    model = METHODS[cfg.method](cfg)
+    
+    # now we load in the other backbone
+    
+    
+    backbone_model = BaseMethod._BACKBONES[cfg.backbone.name]
+
+    # initialize backbone
+    backbone = backbone_model(method="barlow", **cfg.backbone.kwargs)
+   
+
+    ckpt_path = cfg.pretrained_feature_extractor
+    assert ckpt_path.endswith(".ckpt") or ckpt_path.endswith(".pth") or ckpt_path.endswith(".pt")
+    print("about to load backbone")
+    state = torch.load(ckpt_path, map_location="cpu")["state_dict"]
+    for k in list(state.keys()):
+        if "encoder" in k:
+            state[k.replace("encoder", "backbone")] = state[k]
+            logging.warn(
+                "You are using an older checkpoint. Use a new one as some issues might arrise."
+            )
+        if "backbone" in k:
+            state[k.replace("backbone.", "")] = state[k]
+        del state[k]
+        
+    if cfg.backbone.name.startswith("resnet"):
+        backbone.fc = nn.Identity()
+        cifar = cfg.data.dataset in ["cifar10", "cifar100"]
+        if cifar:
+            backbone.conv1 = nn.Conv2d(
+                3, 64, kernel_size=3, stride=1, padding=2, bias=False
+            )
+            backbone.maxpool = nn.Identity()
+    
+    backbone.load_state_dict(state, strict=False)
+    logging.info(f"Loaded {ckpt_path}")
+    
+    model.backbone = backbone
+    print("passed backbone")
+    
     make_contiguous(model)
     # can provide up to ~20% speed up
     if not cfg.performance.disable_channel_last:
         model = model.to(memory_format=torch.channels_last)
+    
+    
 
     # validation dataloader for when it is available
     if cfg.data.dataset == "custom" and (cfg.data.no_labels or cfg.data.val_path is None):
@@ -220,7 +258,6 @@ def main(cfg: DictConfig):
             id=wandb_run_id,
         )
         wandb_logger.watch(model, log="gradients", log_freq=100)
-
         wandb_logger.log_hyperparams(OmegaConf.to_container(cfg))
 
         # lr logging
@@ -231,8 +268,6 @@ def main(cfg: DictConfig):
     # we only want to pass in valid Trainer args, the rest may be user specific
     valid_kwargs = inspect.signature(Trainer.__init__).parameters
     trainer_kwargs = {name: trainer_kwargs[name] for name in valid_kwargs if name in trainer_kwargs}
-    #callbacks.append(ModelSummary(max_depth=1))
-
     trainer_kwargs.update(
         {
             "logger": wandb_logger if cfg.wandb.enabled else None,
@@ -241,8 +276,6 @@ def main(cfg: DictConfig):
             "strategy": DDPStrategy(find_unused_parameters=False)
             if cfg.strategy == "ddp"
             else cfg.strategy,
-            "profiler": profiler,
-            # "enable_model_summary": True,
         }
     )
     trainer = Trainer(**trainer_kwargs)
@@ -263,7 +296,7 @@ def main(cfg: DictConfig):
         )
     except:
         pass
-    print(model)
+
     if cfg.data.format == "dali":
         trainer.fit(model, ckpt_path=ckpt_path, datamodule=dali_datamodule)
     else:

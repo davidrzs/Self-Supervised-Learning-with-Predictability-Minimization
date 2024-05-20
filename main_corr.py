@@ -22,7 +22,7 @@ import json
 import os
 from pathlib import Path
 
-from omegaconf import OmegaConf
+from omegaconf import DictConfig, OmegaConf
 
 from solo.args.corr import parse_args_corr
 from solo.data.classification_dataloader import prepare_data

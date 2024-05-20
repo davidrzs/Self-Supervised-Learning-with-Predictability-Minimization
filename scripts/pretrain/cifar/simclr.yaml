@@ -11,7 +11,7 @@ hydra:
   run:
     dir: .
 
-name: "simclr-cifar10" # change here for cifar100
+name: "simclr-cifar100" # change here for cifar100
 method: "simclr"
 backbone:
   name: "resnet18"
@@ -20,7 +20,7 @@ method_kwargs:
   proj_output_dim: 256
   temperature: 0.2
 data:
-  dataset: cifar10 # change here for cifar100
+  dataset: cifar100 # change here for cifar100
   train_path: "./datasets"
   val_path: "datasets/imagenet100/val"
   format: "image_folder"

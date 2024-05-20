@@ -11,18 +11,18 @@ hydra:
   run:
     dir: .
 
-name: "mocov3-cifar10" # change here for cifar100
-method: "mocov3"
+name: "cl_lin_pred_min-cifar10" # change here for cifar100
+method: "cl_lin_pred_min"
 backbone:
   name: "resnet18"
 method_kwargs:
-  proj_hidden_dim: 4096
-  proj_output_dim: 256
-  pred_hidden_dim: 4096
-  temperature: 0.2
-momentum:
-  base_tau: 0.99
-  final_tau: 1.0
+  proj_hidden_dim: 2048
+  proj_output_dim: 128
+  mask_fraction: 0.5
+  lamb: 0.15
+  ridge_lambd: 0
+  proj_size: 3
+  mask_regression_target: False
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
@@ -32,9 +32,9 @@ data:
 optimizer:
   name: "lars"
   batch_size: 256
-  lr: 0.3
-  classifier_lr: 0.3
-  weight_decay: 1e-6
+  lr: 0.05
+  classifier_lr: 0.1
+  weight_decay: 1e-4
   kwargs:
     clip_lr: True
     eta: 0.02
@@ -46,11 +46,9 @@ checkpoint:
   dir: "trained_models"
   frequency: 1
 auto_resume:
-  enabled: True
-
-
+  enabled: False
 # overwrite PL stuff
-max_epochs: 1000
+max_epochs: 250
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"

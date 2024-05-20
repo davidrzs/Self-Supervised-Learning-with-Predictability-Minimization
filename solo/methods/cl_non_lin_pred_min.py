@@ -180,7 +180,7 @@ class CLNonLinPredMin(BaseMethod):
                                                                                 
         # get a first guess at how good the predictor is
         self.predictor.eval() 
-        predictions = self.predictor(eval_input)
+        predictions = self.predictor.forward(eval_input)
         self.predictor.train()
         prediction_loss = average_predictor_mse_loss(predictions, embeddings_eval, mask_eval)
 

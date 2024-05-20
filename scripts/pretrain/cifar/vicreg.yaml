@@ -10,7 +10,7 @@ hydra:
   run:
     dir: .
 
-name: "vicreg-cifar10" # change here for cifar100
+name: "vicreg-cifar100" # change here for cifar100
 method: "vicreg"
 backbone:
   name: "resnet18"
@@ -21,7 +21,7 @@ method_kwargs:
   var_loss_weight: 25.0
   cov_loss_weight: 1.0
 data:
-  dataset: cifar10 # change here for cifar100
+  dataset: cifar100 # change here for cifar100
   train_path: "./datasets"
   val_path: "datasets/imagenet100/val"
   format: "image_folder"

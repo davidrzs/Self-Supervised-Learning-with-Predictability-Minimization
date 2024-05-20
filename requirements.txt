@@ -9,3 +9,4 @@ scipy
 timm
 scikit-learn
 hydra-core
+skorch
