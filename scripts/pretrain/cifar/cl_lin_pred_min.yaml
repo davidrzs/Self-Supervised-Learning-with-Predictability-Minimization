@@ -19,9 +19,10 @@ method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 128
   mask_fraction: 0.5
-  lamb: 0.2
+  lamb: 0.15
   ridge_lambd: 0
   proj_size: 3
+  mask_regression_target: False
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
@@ -52,4 +53,4 @@ devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 16-mixed
+precision: 16

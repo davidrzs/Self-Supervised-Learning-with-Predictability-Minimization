@@ -19,6 +19,9 @@
 
 import inspect
 import os
+import logging
+
+from torch import nn
 
 import hydra
 import torch
@@ -41,6 +44,8 @@ from solo.methods import METHODS
 from solo.utils.auto_resumer import AutoResumer
 from solo.utils.checkpointer import Checkpointer
 from solo.utils.misc import make_contiguous, omegaconf_select
+from solo.methods.base import BaseMethod
+
 
 try:
     from solo.data.dali_dataloader import PretrainDALIDataModule, build_transform_pipeline_dali
@@ -72,11 +77,54 @@ def main(cfg: DictConfig):
     if cfg.data.num_large_crops != 2:
         assert cfg.method in ["wmse", "mae"]
 
+
+
     model = METHODS[cfg.method](cfg)
+    
+    # now we load in the other backbone
+    
+    
+    backbone_model = BaseMethod._BACKBONES[cfg.backbone.name]
+
+    # initialize backbone
+    backbone = backbone_model(method="barlow", **cfg.backbone.kwargs)
+   
+
+    ckpt_path = cfg.pretrained_feature_extractor
+    assert ckpt_path.endswith(".ckpt") or ckpt_path.endswith(".pth") or ckpt_path.endswith(".pt")
+    print("about to load backbone")
+    state = torch.load(ckpt_path, map_location="cpu")["state_dict"]
+    for k in list(state.keys()):
+        if "encoder" in k:
+            state[k.replace("encoder", "backbone")] = state[k]
+            logging.warn(
+                "You are using an older checkpoint. Use a new one as some issues might arrise."
+            )
+        if "backbone" in k:
+            state[k.replace("backbone.", "")] = state[k]
+        del state[k]
+        
+    if cfg.backbone.name.startswith("resnet"):
+        backbone.fc = nn.Identity()
+        cifar = cfg.data.dataset in ["cifar10", "cifar100"]
+        if cifar:
+            backbone.conv1 = nn.Conv2d(
+                3, 64, kernel_size=3, stride=1, padding=2, bias=False
+            )
+            backbone.maxpool = nn.Identity()
+    
+    backbone.load_state_dict(state, strict=False)
+    logging.info(f"Loaded {ckpt_path}")
+    
+    model.backbone = backbone
+    print("passed backbone")
+    
     make_contiguous(model)
     # can provide up to ~20% speed up
     if not cfg.performance.disable_channel_last:
         model = model.to(memory_format=torch.channels_last)
+    
+    
 
     # validation dataloader for when it is available
     if cfg.data.dataset == "custom" and (cfg.data.no_labels or cfg.data.val_path is None):

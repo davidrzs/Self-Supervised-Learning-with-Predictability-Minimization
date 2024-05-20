@@ -58,6 +58,7 @@ def calculate_correlation(
     corr = (np.transpose(data_standardized) @ data_standardized) / data_standardized.shape[0]
 
     np.savetxt(path / Path('labels.csv'), Y, delimiter=",")
+    np.savetxt(path / Path('data.csv'), data, delimiter=",")
     np.savetxt(path / Path('data_standardized.csv'), data_standardized, delimiter=",")
     np.savetxt(path / Path('correlation.csv'), corr, delimiter=",")
 

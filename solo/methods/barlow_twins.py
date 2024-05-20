@@ -46,17 +46,48 @@ class BarlowTwins(BaseMethod):
 
         proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         proj_output_dim: int = cfg.method_kwargs.proj_output_dim
+        
+        self.proj_hidden_dim = proj_hidden_dim
+        self.proj_output_dim = proj_output_dim
 
-        # projector
-        self.projector = nn.Sequential(
-            nn.Linear(self.features_dim, proj_hidden_dim),
-            nn.BatchNorm1d(proj_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(proj_hidden_dim, proj_hidden_dim),
-            nn.BatchNorm1d(proj_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(proj_hidden_dim, proj_output_dim),
-        )
+        # # projector
+        # self.projector = nn.Sequential(
+        #     nn.Linear(self.features_dim, proj_hidden_dim),
+        #     nn.BatchNorm1d(proj_hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(proj_hidden_dim, proj_hidden_dim),
+        #     nn.BatchNorm1d(proj_hidden_dim),
+        #     nn.ReLU(),
+        #     nn.Linear(proj_hidden_dim, proj_output_dim),
+        # )
+        
+        if cfg.method_kwargs.proj_size == 1:
+            self.projector = nn.Sequential(
+                nn.Linear(self.features_dim, self.proj_output_dim),
+            )
+        if cfg.method_kwargs.proj_size == 2:
+            self.projector = nn.Sequential(
+                nn.Linear(self.features_dim, self.proj_hidden_dim),
+                nn.BatchNorm1d(self.proj_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.proj_hidden_dim, self.proj_output_dim),
+            )
+        if cfg.method_kwargs.proj_size == 3:
+            self.projector = nn.Sequential(
+                nn.Linear(self.features_dim, self.proj_hidden_dim),
+                nn.BatchNorm1d(self.proj_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.proj_hidden_dim, self.proj_hidden_dim),
+                nn.BatchNorm1d(self.proj_hidden_dim),
+                nn.ReLU(),
+                nn.Linear(self.proj_hidden_dim, self.proj_output_dim),
+            )
+        if cfg.method_kwargs.proj_size == 0:
+            self.projector = torch.nn.Identity()
+
+        
+        
+        
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:

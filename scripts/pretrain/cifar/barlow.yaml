@@ -19,6 +19,7 @@ method_kwargs:
   proj_hidden_dim: 2048
   proj_output_dim: 2048
   scale_loss: 0.1
+  proj_size: 3
 data:
   dataset: cifar10 # change here for cifar100
   train_path: "./datasets"
@@ -42,7 +43,7 @@ checkpoint:
   dir: "trained_models"
   frequency: 1
 auto_resume:
-  enabled: True
+  enabled: False
 
 # overwrite PL stuff
 max_epochs: 1000

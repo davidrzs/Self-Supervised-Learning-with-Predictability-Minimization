@@ -48,6 +48,8 @@ class CLLinPredMin(BaseMethod):
 
         self.proj_hidden_dim: int = cfg.method_kwargs.proj_hidden_dim
         self.proj_output_dim: int = cfg.method_kwargs.proj_output_dim
+        
+        self.mask_regression_target = cfg.method_kwargs.mask_regression_target
 
 
         # projector
@@ -73,6 +75,8 @@ class CLLinPredMin(BaseMethod):
                 nn.ReLU(),
                 nn.Linear(self.proj_hidden_dim, self.proj_output_dim),
             )
+        if cfg.method_kwargs.proj_size == 0:
+            self.projector = torch.nn.Identity()
 
     @staticmethod
     def add_and_assert_specific_cfg(cfg: omegaconf.DictConfig) -> omegaconf.DictConfig:
@@ -140,14 +144,11 @@ class CLLinPredMin(BaseMethod):
         class_loss = out["loss"]
         z1, z2 = out["z"]
 
-        z1_norm = F.normalize(z1, dim=-1)
-        z2_norm = F.normalize(z2, dim=-1)
 
+        batch_size, _ = z1.size()
 
-        batch_size, _ = z1_norm.size()
-
-        out_1_norm = (z1_norm - z1_norm.mean(dim=0)) / z1_norm.std(dim=0)
-        out_2_norm = (z2_norm - z2_norm.mean(dim=0)) / z2_norm.std(dim=0)
+        out_1_norm = (z1 - z1.mean(dim=0)) / z1.std(dim=0)
+        out_2_norm = (z2 - z2.mean(dim=0)) / z2.std(dim=0)
 
         embeddings = torch.cat((out_1_norm, out_2_norm), 0)
 
@@ -159,7 +160,12 @@ class CLLinPredMin(BaseMethod):
         masked_embeddings = (~masked_indices) * embeddings
         X = torch.transpose(masked_embeddings, 0, 1) @ masked_embeddings
         X = X + self.ridge_lambd * torch.eye(self.proj_output_dim, device=embeddings.device)
-        B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices * embeddings)
+        
+        if self.mask_regression_target:
+            B = torch.transpose(masked_embeddings, 0, 1) @ (masked_indices * embeddings)
+        else:
+            B = torch.transpose(masked_embeddings, 0, 1) @ embeddings
+            
         W = torch.linalg.solve(X.float(), B.float())
         prediction_loss = average_predictor_mse_loss(masked_embeddings @ W, embeddings, masked_indices)
 

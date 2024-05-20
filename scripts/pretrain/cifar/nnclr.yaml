@@ -11,7 +11,7 @@ hydra:
   run:
     dir: .
 
-name: "nnclr-cifar10" # change here for cifar100
+name: "nnclr-cifar100" # change here for cifar100
 method: "nnclr"
 backbone:
   name: "resnet18"
@@ -22,7 +22,7 @@ method_kwargs:
   proj_output_dim: 256
   queue_size: 65536
 data:
-  dataset: cifar10 # change here for cifar100
+  dataset: cifar100 # change here for cifar100
   train_path: "./datasets"
   val_path: "./datasets"
   format: "image_folder"
