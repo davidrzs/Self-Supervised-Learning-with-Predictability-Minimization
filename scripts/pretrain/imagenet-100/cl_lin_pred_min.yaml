@@ -25,8 +25,8 @@ method_kwargs:
   mask_regression_target: False
 data:
   dataset: imagenet100
-  train_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_train_100"
-  val_path: "/itet-stor/zdavid/net_scratch/data/ILSVRC2012_img_val_100"
+  train_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_train_100"
+  val_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_val_100"
   format: "dali"
   num_workers: 5
 optimizer:

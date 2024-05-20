@@ -46,7 +46,7 @@ def predict(X_train, X_val, model):
         if model == 'linear':
             clf = SGDRegressor()
         elif model == 'xgb':
-            clf = xgb.XGBRegressor()  
+            clf = xgb.XGBRegressor(n_jobs=-1)  
         elif model == 'mlp':
             clf = MLPRegressor()
             
@@ -56,27 +56,21 @@ def predict(X_train, X_val, model):
         
     return np.mean(scores), np.std(scores)
         
-# find all folders in the 'correlation_analysis' folder
-# for every folder we extract the path, the model name, the wandb run id and the number and end up creating a dataframe
-all_folders = glob.glob(args.folder)
-
-folder_name = args.folder.replace('/','-')
-print("new folder name: ", folder_name,flush=True)
-
-print("all folders: ", all_folders,flush=True)
 
 all_data = pd.DataFrame(columns=['path', 'model_name', 'dataset_name', 'data_split', 'wandb_run_id'])
 
-for folder in all_folders:
-    path = Path(folder)
-    model_name = path.name 
-    model_name = model_name.split('-')[0]
-    dataset_name = path.name.split('-')[1].split('_')[0]
-    data_split = path.name.split('_')[-1]
-    wandb_run_id = path.name.split('_')[-2]
-    all_data.loc[len(all_data)] = [path, model_name, dataset_name, data_split, wandb_run_id]
-    
+# for folder in all_folders:
+path = Path(args.folder)
+print("PATH IS", path)
+print("PATH NAME IS", path.name)
+model_name = path.name 
+model_name = model_name.split('-')[0]
+dataset_name = path.name.split('-')[1].split('_')[0]
+data_split = path.name.split('_')[-1]
+wandb_run_id = path.name.split('_')[-2]
+all_data.loc[len(all_data)] = [path, model_name, dataset_name, data_split, wandb_run_id]
 
+f_name = (args.folder).replace('/','_')
 
 
 
@@ -129,29 +123,25 @@ def worker_function(args):
             # print with timestamp
             print(f"std_{regress_model}_{i}: {std} at {pd.Timestamp.now().strftime('%Y-%m-%d_%H-%M-%S')}",flush=True)
         
-    
-
     return index, row
 
 
-
-
 print("about to run now",flush=True)
-# Parallelize using Pool
-with Pool(cpu_count()) as p:
-    results = p.map(worker_function, all_data.iterrows())
+
 # Initialize an empty list to store the updated rows
 updated_rows = []
 
-# Iterate through the results to collect the updated rows
-for result in results:
-    index, updated_row = result
-    updated_rows.append(updated_row)
+# Iterate over the DataFrame rows using iterrows()
+for index, row in all_data.iterrows():
+    # Apply the worker function to each row
+    result = worker_function((index, row))
+    # Collect the updated rows
+    updated_rows.append(result[1])
 
 # Create a new DataFrame containing all the results
 updated_dataframe = pd.DataFrame(updated_rows)
 
-# also include timestamp
+# Include timestamp
 timestamp = pd.Timestamp.now().strftime("%Y-%m-%d_%H-%M-%S")
-updated_dataframe.to_csv(f'all_results_{regress_model}_{timestamp}_{folder_name}.csv', index=False)
+updated_dataframe.to_csv(f'all_results_{regress_model}_{timestamp}_{f_name}.csv', index=False)
 

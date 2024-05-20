@@ -18,8 +18,19 @@
 # DEALINGS IN THE SOFTWARE.
 
 from solo.methods.barlow_twins import BarlowTwins
+from solo.methods.barlow_twins_manual import BarlowTwinsManual
 from solo.methods.cl_lin_pred_min import CLLinPredMin
 from solo.methods.cl_non_lin_pred_min import CLNonLinPredMin
+from solo.methods.cl_non_lin_pred_minv2 import CLNonLinPredMinv2
+from solo.methods.cl_non_lin_pred_minv3 import CLNonLinPredMinv3
+from solo.methods.cl_non_lin_pred_minv4 import CLNonLinPredMinv4
+from solo.methods.cl_non_lin_pred_minv5 import CLNonLinPredMinv5
+from solo.methods.cl_non_lin_pred_minv6 import CLNonLinPredMinv6
+from solo.methods.cl_non_lin_pred_min_gan import CLNonLinPredMinGAN
+from solo.methods.cl_non_lin_pred_min_gan_full import CLNonLinPredMinGANFull
+from solo.methods.cl_non_lin_pred_minv5_man_opt import CLNonLinPredMinv5Man
+from solo.methods.cl_non_lin_pred_min_single_step import CLNonLinPredMinSingleStep
+from solo.methods.cl_lin_pred_min_sgd import CLLinPredMinSGD
 from solo.methods.barlow_cl_lin_pred_min import BarlowCLLinPredMin
 from solo.methods.base import BaseMethod
 from solo.methods.byol import BYOL
@@ -48,8 +59,19 @@ METHODS = {
     # methods
     "cl_lin_pred_min": CLLinPredMin,
     "cl_non_lin_pred_min": CLNonLinPredMin,
+    "cl_non_lin_pred_minv2": CLNonLinPredMinv2,
+    "cl_non_lin_pred_minv3": CLNonLinPredMinv3,
+    "cl_non_lin_pred_minv4": CLNonLinPredMinv4,
+    "cl_non_lin_pred_minv5": CLNonLinPredMinv5,
+    "cl_non_lin_pred_minv6": CLNonLinPredMinv6,
+    "cl_non_lin_pred_min_gan": CLNonLinPredMinGAN,
+    "cl_non_lin_pred_min_gan_full": CLNonLinPredMinGANFull,
+    "cl_non_lin_pred_minv5_man_opt": CLNonLinPredMinv5Man,
+    "cl_non_lin_pred_min_single_step": CLNonLinPredMinSingleStep,
+    "cl_lin_pred_min_sgd": CLLinPredMinSGD,
     "barlow_cl_lin_pred_min": BarlowCLLinPredMin,  
     "barlow_twins": BarlowTwins,
+    "barlow_twins_manual": BarlowTwinsManual,
     "byol": BYOL,
     "deepclusterv2": DeepClusterV2,
     "dino": DINO,
@@ -73,6 +95,9 @@ __all__ = [
     "BarlowCLLinPredMin",
     "CLLinPredMin",
     "CLNonLinPredMin",
+    "CLNonLinPredMinv2",
+    "CLNonLinPredMinv3",
+    "CLNonLinPredMinv4",
     "BYOL",
     "BaseMethod",
     "DeepClusterV2",

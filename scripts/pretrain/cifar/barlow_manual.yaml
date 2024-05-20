@@ -11,27 +11,23 @@ hydra:
   run:
     dir: .
 
-name: "barlow_cl_lin_pred_min-imagenet100"
-method: "barlow_cl_lin_pred_min"
+name: "barlow_twins_manual-cifar10" # change here for cifar100
+method: "barlow_twins_manual"
 backbone:
   name: "resnet18"
 method_kwargs:
   proj_hidden_dim: 2048
-  proj_output_dim: 128
-  mask_fraction: 0.5
-  lamb: 0.2
-  ridge_lambd: 0
-  mu: 0.0001
-  proj_size: 3
+  proj_output_dim: 2048
+  scale_loss: 0.1
 data:
-  dataset: imagenet100
-  train_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_train_100"
-  val_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_val_100"
-  format: "dali"
+  dataset: cifar10 # change here for cifar100
+  train_path: "./datasets"
+  val_path: "./datasets"
+  format: "image_folder"
   num_workers: 4
 optimizer:
   name: "lars"
-  batch_size: 128
+  batch_size: 256
   lr: 0.3
   classifier_lr: 0.1
   weight_decay: 1e-4
@@ -47,10 +43,11 @@ checkpoint:
   frequency: 1
 auto_resume:
   enabled: False
+
 # overwrite PL stuff
 max_epochs: 1000
 devices: [0]
 sync_batchnorm: True
 accelerator: "gpu"
 strategy: "ddp"
-precision: 16-mixed
+precision: 16

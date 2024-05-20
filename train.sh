@@ -1,12 +1,16 @@
 #!/bin/bash
 #SBATCH --job-name=BT_paper
 #SBATCH --gres=gpu:1
-#SBATCH --mem=35GB
-#SBATCH --cpus-per-task=4
-#SBATCH --nodelist='tikgpu05' #tikgpu05 # Specify that it should run on this particular node artongpu01
-####SBATCH --constraint='geforce_rtx_3090|titan_rtx|rtx_a6000|rtx_2080_ti'
-#######SBATCH --constraint='titan_rtx'
+#SBATCH --mem=25GB
+#SBATCH --cpus-per-task=8
+#SBATCH --output=/home/maotth/log/%j.out     # where to store the output (%j is the JOBID), subdirectory "log" must exist
+#SBATCH --error=/home/maotth/log/%j.err  # where to store error messages
+#CommentSBATCH --exclude=tikgpu08,tikgpu10
+#SBATCH --constraint='geforce_rtx_3090|rtx_a6000'
+#CommentSBATCH --nodelist=tikgpu09
+#SBATCH --dependency=afterany:818382
 
+#a100_80gb geforce_gtx_titan_x geforce_rtx_2080_ti geforce_rtx_3090 rtx_a6000 tesla_v100 titan_rtx titan_xp
 # Send some noteworthy information to the output log
 echo "Running on node: $(hostname)"
 echo "In directory:    $(pwd)"
@@ -15,11 +19,11 @@ echo "SLURM_JOB_ID:    ${SLURM_JOB_ID}"
 
 nvidia-smi
 
-
-# HERE WE INVESTIGATE PREDICTABILITY
-python3 /itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/cifar/ --config-name cl_lin_pred_min.yaml name="cl_lin_pred_min-cifar10" data.dataset=cifar10 method_kwargs.lamb=0.2 optimizer.batch_size=512
-
-# python3 /itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/cifar/ --config-name cl_lin_pred_min.yaml method_kwargs.lambda = 0.05 name="cl_lin_pred_min-cifar100" data.dataset=cifar100 
+# python -m pipenv run python /itet-stor/$USER/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/imagenet-100/ --config-name barlow_cl_lin_pred_min.yaml
+python -m pipenv run python /itet-stor/$USER/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/cifar/ --config-name cl_non_lin_pred_minv6.yaml $@
+# python -m pipenv run python /itet-stor/$USER/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/cifar/ --config-name cl_lin_pred_min_sgd.yaml
+# python -m pipenv run python /itet-stor/$USER/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/imagenet-100/ --config-name cl_lin_pred_min.yaml
+# python -m pipenv run python /itet-stor/$USER/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/imagenet-100/ --config-name barlow.yaml
 
 
 # python3 /itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/cifar/ --config-name barlow.yaml  data.dataset=cifar100  name="barlow_twins-cifar100" +method_kwargs.lamb=0.05
