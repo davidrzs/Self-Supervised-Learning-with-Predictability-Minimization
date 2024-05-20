@@ -44,7 +44,6 @@ echo Copying done
 python3 /itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/imagenet-100/ --config-name barlow.yaml  data.train_path=$TEMP_DIR/ILSVRC2012_img_train_100/ data.val_path=$TEMP_DIR/ILSVRC2012_img_val_100/ +method_kwargs.lamb=0.01
 
 
-
 # here we do the projector layer ablation
 
 # python3 /itet-stor/zdavid/net_scratch/Self-Supervised-Learning-with-Predictability-Minimization/main_pretrain.py --config-path scripts/pretrain/imagenet-100/ --config-name cl_lin_pred_min.yaml method_kwargs.ridge_lambd=1000 method_kwargs.proj_size=0 method_kwargs.proj_output_dim=512 data.train_path=$TEMP_DIR/ILSVRC2012_img_train_100/ data.val_path=$TEMP_DIR/ILSVRC2012_img_val_100/

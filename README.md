@@ -26,6 +26,8 @@ For **CLPM-Opt**, use XYZ
 
 TODO
 
+For CIFAR-10 and CIFAR-100 we have used the same files within the `scripts/pretrain/cifar/` folder whereas for ImageNet-100 we have used the files within the `scripts/pretrain/imagenet-100/` folder.
+
 Make sure to set the dataset paths in the YAML files accordingly.
 
 ## Linear Evaluation of ImageNet-100

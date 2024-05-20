@@ -1,4 +1,3 @@
-# Copyright 2023 David Zollikofer - ETH Zürich.
 # Copyright 2023 solo-learn development team.
 from typing import Tuple, Any
 
