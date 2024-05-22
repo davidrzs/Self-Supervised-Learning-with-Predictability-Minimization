@@ -1,0 +1,72 @@
+defaults:
+  - _self_
+  - augmentations: asymmetric.yaml
+  - wandb: private.yaml
+  - override hydra/hydra_logging: disabled
+  - override hydra/job_logging: disabled
+
+# disable hydra outputs
+hydra:
+  output_subdir: null
+  run:
+    dir: .
+
+name: "cl_non_lin_pred_minv6-imagenet100" # change here for cifar100
+method: "cl_non_lin_pred_minv6"
+backbone:
+  name: "resnet18"
+method_kwargs:
+  proj_hidden_dim: 2048
+  proj_output_dim: 128
+  mask_fraction: 0.5
+  lamb: .1
+  pred_lamb: 0.5
+  proj_size: 3
+  pred_type: "mlp"  # [mlp]
+  norm_type: "standardize"   # [l2, standardize, both]
+  pred_loss_transform: "log" #[log, sqrt, identity]
+  max_pred_steps: 500
+  pred_weight_decay: 1e-6
+  pred_lr_init: 1e-3
+  pred_steps_target: 25
+  pred_train_type: 'random'
+  pred_clip_grad: 0.0
+  pred_eval_steps: 10
+  clip_pred_loss: 1.0
+  patience: 1
+  pred_kwargs:
+    layers: 3
+    hidden_dim: 128
+    activation: "relu" # [relu, tanh]
+data:
+  dataset: imagenet100 # change here for cifar100
+  train_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_train_100"
+  val_path: "/itet-stor/maotth/net_scratch/data/ILSVRC2012_img_val_100"
+  format: "image_folder"
+  num_workers: 4
+optimizer: 
+  name: "lars"
+  batch_size: 512
+  lr: 0.3
+  classifier_lr: 0.1
+  weight_decay: 1e-4
+  kwargs:
+    clip_lr: True
+    eta: 0.02
+    exclude_bias_n_norm: True
+scheduler:
+  name: "warmup_cosine"
+checkpoint:
+  enabled: True
+  dir: "trained_models"
+  frequency: 1
+auto_resume:
+  enabled: True
+# overwrite PL stuff
+max_epochs: 400
+devices: [0]
+sync_batchnorm: True
+accelerator: "gpu"
+strategy: "ddp"
+precision: 16
+seed: 0

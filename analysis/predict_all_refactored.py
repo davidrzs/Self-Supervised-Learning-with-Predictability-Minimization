@@ -10,9 +10,8 @@ from sklearn.linear_model import RidgeCV
 from sklearn.neural_network import MLPRegressor
 import xgboost as xgb
 from sklearn.model_selection import KFold
-from multiprocessing import Pool, cpu_count
 import argparse
-
+from sklearn.model_selection import train_test_split
 import tqdm 
 import torch
 from torch import nn
@@ -43,22 +42,24 @@ class Regressor(nn.Module):
 
 
 
-def predict(X_train, X_val, epochs=50):
+def predict(X, epochs=100):
 
-    nr_train_embeddings, dim = X_train.shape
+    nr_samples, dim = X.shape
     
-    # normalize the embeddings in case they weren't already
-    X_train = (X_train - X_train.mean(axis=0)) / (X_train.std(axis=0) + 1e-100)
-    X_val = (X_val - X_val.mean(axis=0)) / (X_val.std(axis=0) + 1e-100)
     
     scores_ridge = []
     scores_nnet = []
     
     all_dims = np.arange(dim)
     subsample_dims = np.random.choice(all_dims, int(args.subsample_rate * dim), replace=False)
-    
-    for i in tqdm.tqdm(subsample_dims):
-        print(i)
+    for i in (pbar := tqdm.tqdm(subsample_dims)):
+        
+        # now we build a train and val using a random split
+        X_train, X_val = train_test_split(X, test_size=0.25, random_state=0)
+        
+        X_train = (X_train - X_train.mean(axis=0)) / (X_train.std(axis=0) + 1e-100)
+        X_val = (X_val - X_val.mean(axis=0)) / (X_val.std(axis=0) + 1e-100)
+        
         
         y_i_train = X_train[:,i]
         X_i_train = np.delete(X_train, i, 1)
@@ -66,19 +67,18 @@ def predict(X_train, X_val, epochs=50):
         
         y_i_val = X_val[:,i]
         X_i_val = np.delete(X_val, i, 1)
-                
-    
-            
+
         
         ridge_clf = RidgeCV(alphas=[1e-3, 1e-2, 1e-1, 1,10])
             
         ridge_clf.fit(X_i_train, y_i_train)
         
         pred_ridge = ridge_clf.predict(X_i_val)
-
-        print("RIDGE: ", mean_squared_error(y_i_val, pred_ridge))
         
-        scores_ridge.append(mean_squared_error(y_i_val, pred_ridge))
+        ridge_error = mean_squared_error(y_i_val, pred_ridge)
+
+        
+        scores_ridge.append(ridge_error)
         
         
         nnet_clf = NeuralNetRegressor(
@@ -94,18 +94,20 @@ def predict(X_train, X_val, epochs=50):
         # transform to torch tensor 
         X_i_train = torch.tensor(X_i_train, dtype=torch.float32).cuda()
         y_i_train = torch.tensor(y_i_train, dtype=torch.float32).cuda()
-        # packae from [dim] to [dim, 1]
+        # transform from [dim] to [dim, 1]
         y_i_train = y_i_train.unsqueeze(1)
         X_i_val = torch.tensor(X_i_val, dtype=torch.float32).cuda()
+    
+    
 
             
         nnet_clf.fit(X_i_train, y_i_train)
         
         pred_nnet = nnet_clf.predict(X_i_val)
+        neural_error = mean_squared_error(y_i_val, pred_nnet)
+        scores_nnet.append(neural_error)
         
-        print("NEURAL: ", mean_squared_error(y_i_val, pred_nnet))
-        scores_ridge.append(mean_squared_error(y_i_val, pred_nnet))
-        
+        pbar.set_description(f"Ridge: {ridge_error:.4f}, Neural: {neural_error:.4f}")        
         
         
     scores_diff = np.array(scores_ridge) - np.array(scores_nnet)
@@ -115,7 +117,7 @@ def predict(X_train, X_val, epochs=50):
         
 # find all folders in the 'correlation_analysis' folder
 # for every folder we extract the path, the model name, the wandb run id and the number and end up creating a dataframe
-all_folders = glob.glob(args.folder)
+all_folders = glob.glob(args.folder+'/*')
 
 folder_name = args.folder.replace('/','-')
 print("new folder name: ", folder_name,flush=True)
@@ -138,9 +140,13 @@ for folder in all_folders:
 
 
 
-def worker_function(args):
 
-    index, row = args
+
+results = []
+# Sequential processing of each row
+for index, row in all_data.iterrows():
+    print("Currently running: ", row['path'],flush=True)
+    
     final_path = row['path']/Path('data_standardized.csv')
     X = pd.read_csv(final_path)
     X = X.to_numpy()
@@ -174,42 +180,29 @@ def worker_function(args):
     row['std_abs_corr'] = std_abs
     row['mean_corr'] = mean
     row['std_corr'] = std
-
-    kf = KFold(n_splits=5)
-
-    
-    for i, (train, test) in enumerate(kf.split(X)):
-            mean_ridge, std_ridge, mean_nnet, std_nnet, mean_diff, std_diff = predict(X[train], X[test])
-            row[f'mean_ridge_{i}'] = mean_ridge
-            row[f'std_ridge_{i}'] = std_ridge
-            row[f'mean_nnet_{i}'] = mean_nnet
-            row[f'std_nnet_{i}'] = std_nnet
-            row[f'mean_diff_{i}'] = mean_diff
-            row[f'std_diff_{i}'] = std_diff
-        
     
 
-    return index, row
+
+    mean_ridge, std_ridge, mean_nnet, std_nnet, mean_diff, std_diff = predict(X, epochs=100)
+    row[f'mean_ridge'] = mean_ridge
+    row[f'std_ridge'] = std_ridge
+    row[f'mean_nnet'] = mean_nnet
+    row[f'std_nnet'] = std_nnet
+    row[f'mean_diff'] = mean_diff
+    row[f'std_diff'] = std_diff
+    
+    results.append(row)
+    
+    #store results in as a json file
+    temp = pd.DataFrame(results)
+    time = pd.Timestamp.now().strftime("%Y-%m-%d_%H-%M-%S")
+    temp.to_csv(f'TEMP_all_results_temp_{folder_name}_{time}.csv', index=False)
 
 
-
-
-print("about to run now",flush=True)
-# Parallelize using Pool
-with Pool(cpu_count()) as p:
-    results = p.map(worker_function, all_data.iterrows())
-# Initialize an empty list to store the updated rows
-updated_rows = []
-
-# Iterate through the results to collect the updated rows
-for result in results:
-    index, updated_row = result
-    updated_rows.append(updated_row)
 
 # Create a new DataFrame containing all the results
-updated_dataframe = pd.DataFrame(updated_rows)
+updated_dataframe = pd.DataFrame(results)
 
 # also include timestamp
 timestamp = pd.Timestamp.now().strftime("%Y-%m-%d_%H-%M-%S")
 updated_dataframe.to_csv(f'all_results_{timestamp}_{folder_name}.csv', index=False)
-
